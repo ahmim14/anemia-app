@@ -1,1 +1,26 @@
-# ?? Anemia Evaluation Tool – Streamlit AppThis is an interactive clinical decision support tool for evaluating anemia in the primary care setting. It was developed as part of a medical education capstone project for internal medicine residents at GMA clinic.## Features- MCV-based anemia classification (micro/normo/macro)- Reticulocyte and iron panel interpretation- B12/folate deficiency detection- Hemolysis detection (LDH, haptoglobin, indirect bili)- Hypothyroidism and CKD considerations- Medication-based risk flags- Optional flowchart visualization- Hematology referral recommendations##  Tech Stack- Python- [Streamlit](https://streamlit.io)- Optional: GitHub + Streamlit Cloud for deployment##  Installation```bashpip install streamlitstreamlit run anemia_app.py
+# Anemia Evaluation Tool √ê Streamlit App
+
+This is an interactive clinical decision support tool for evaluating anemia in the primary care setting. It was developed as part of a medical education capstone project for internal medicine residents at GMA clinic.
+
+## Features
+
+- MCV-based anemia classification (micro/normo/macro)
+- Reticulocyte and iron panel interpretation
+- B12/folate deficiency detection
+- Hemolysis detection (LDH, haptoglobin, indirect bili)
+- Hypothyroidism and CKD considerations
+- Medication-based risk flags
+- Optional flowchart visualization
+- Hematology referral recommendations
+
+##  Tech Stack
+
+- Python
+- [Streamlit](https://streamlit.io)
+- Optional: GitHub + Streamlit Cloud for deployment
+
+##  Installation
+
+```bash
+pip install streamlit
+streamlit run anemia_app.py
