@@ -1,4 +1,4 @@
-# Anemia Evaluation Tool Ð Streamlit App
+# Anemia Evaluation Tool Streamlit App
 
 This is an interactive clinical decision support tool for evaluating anemia in the primary care setting. It was developed as part of a medical education capstone project for internal medicine residents at GMA clinic.
 
