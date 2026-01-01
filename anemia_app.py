@@ -8,8 +8,9 @@ st.markdown(
     "**Educational use only**"
 )
 
-# ---------- Helpers ----------
+# ---------------- Helpers ----------------
 def to_float(x: str):
+    """Blank -> None. Invalid -> None. Never returns 0 unless user typed 0."""
     x = (x or "").strip()
     if x == "":
         return None
@@ -25,6 +26,12 @@ def fmt(x, digits=2):
         return f"{x:.{digits}f}"
     except Exception:
         return str(x)
+
+def selected(x: str):
+    """Return None if user hasn't selected a real option yet."""
+    if x in (None, "", "Select…"):
+        return None
+    return x
 
 def maturation_factor(hct):
     """
@@ -47,19 +54,16 @@ def maturation_factor(hct):
 def add_item(lst, title, rationale="", workup=None):
     lst.append({"title": title, "rationale": rationale, "workup": workup or []})
 
-def selected(x: str):
-    """Return None if user hasn't selected a real option yet."""
-    if x in (None, "", "Select…"):
-        return None
-    return x
+def dedupe_by_title(items):
+    seen = set()
+    out = []
+    for it in items:
+        if it["title"] not in seen:
+            out.append(it)
+            seen.add(it["title"])
+    return out
 
-def yesno_unknown(label: str, help_text: str = ""):
-    return selected(st.selectbox(label, ["Select…", "Yes", "No", "Unknown"], index=0, help=help_text))
-
-def tri_state(label: str, options=("Select…", "Unknown", "Normal", "High"), help_text: str = ""):
-    return selected(st.selectbox(label, list(options), index=0, help=help_text))
-
-# ---------- Step 0: Symptoms / Severity ----------
+# ---------------- Step 0: Symptoms & Severity ----------------
 st.header("Step 0: Symptoms & Severity")
 
 colS1, colS2 = st.columns(2)
@@ -80,6 +84,7 @@ with colS1:
             help="Examples: chest pain/ischemia, dyspnea at rest, syncope, hemodynamic instability, active bleeding.",
         )
     )
+
 with colS2:
     active_bleeding = selected(
         st.selectbox(
@@ -96,7 +101,7 @@ with colS2:
         )
     )
 
-# ---------- Step 1: CBC Basics (includes Retic Index) ----------
+# ---------------- Step 1: CBC Basics ----------------
 st.header("Step 1: CBC Basics")
 
 colA, colB = st.columns(2)
@@ -113,7 +118,6 @@ with colB:
     )
     rdw = selected(st.selectbox("RDW", ["Select…", "Normal", "High", "Unknown"], index=0))
 
-# Other CBC red flags
 st.subheader("CBC context (optional)")
 colC1, colC2, colC3 = st.columns(3)
 with colC1:
@@ -143,11 +147,13 @@ with colC3:
         )
     )
 
-# Reticulocyte input
+# ---------------- Reticulocytes + RPI ----------------
 st.subheader("Reticulocytes")
+
+# ✅ FIX: no Select… here (this is a UI choice, not a clinical unknown)
 retic_mode = st.radio(
     "Reticulocyte input",
-    ["Select…", "Qualitative (Low/Normal/High)", "Numeric (%)"],
+    ["Qualitative (Low/Normal/High)", "Numeric (%)"],
     horizontal=True,
     index=0,
 )
@@ -157,18 +163,18 @@ retic_pct = None
 
 if retic_mode == "Qualitative (Low/Normal/High)":
     retic_qual = selected(st.selectbox("Reticulocyte count", ["Select…", "Low", "Normal", "High"], index=0))
-elif retic_mode == "Numeric (%)":
+else:
     retic_pct = to_float(st.text_input("Reticulocyte %", value="", placeholder="leave blank if unknown"))
 
-# Retic Index / RPI
 st.subheader("Reticulocyte Index (Corrected Retic) & RPI")
-expected_hct = to_float(st.text_input("Expected Hematocrit (%)", value="", placeholder="40"))
-if expected_hct is None:
-    expected_hct = 40.0  # default, but still respects blank handling
+
+expected_hct_input = to_float(st.text_input("Expected Hematocrit (%)", value="", placeholder="40"))
+expected_hct = expected_hct_input if expected_hct_input is not None else 40.0
 
 mf = maturation_factor(hct)
 corrected_retic = None
 rpi = None
+
 if retic_pct is not None and hct is not None and expected_hct is not None and expected_hct != 0:
     corrected_retic = retic_pct * (hct / expected_hct)
     if mf is not None and mf != 0:
@@ -181,12 +187,22 @@ with c2:
     st.metric("Maturation factor", fmt(mf, 1))
 with c3:
     st.metric("RPI", fmt(rpi, 2))
+
 st.caption("Informational: RPI <2 suggests underproduction; ≥2 suggests appropriate marrow response (e.g., hemolysis/bleeding).")
 
-# ---------- Step 2: Iron Studies ----------
+# Marrow response label used later
+marrow_response = "Unknown"
+if rpi is not None:
+    marrow_response = "Appropriate (RPI ≥2)" if rpi >= 2 else "Inadequate (RPI <2)"
+elif retic_qual is not None:
+    if retic_qual == "High":
+        marrow_response = "Appropriate/High retic"
+    elif retic_qual == "Low":
+        marrow_response = "Inadequate/Low retic"
+
+# ---------------- Step 2: Iron Studies ----------------
 st.header("Step 2: Iron Studies")
 
-# Give users the option to indicate whether they have iron studies at all
 iron_done = selected(st.selectbox("Are iron studies available?", ["Select…", "Yes", "No"], index=0))
 ferritin = transferrin_sat = None
 
@@ -197,7 +213,7 @@ if iron_done == "Yes":
     with colI2:
         transferrin_sat = to_float(st.text_input("Transferrin Saturation (%)", value="", placeholder="leave blank if unknown"))
 
-# ---------- Step 3: Vitamin & Hemolysis Markers ----------
+# ---------------- Step 3: Vitamin & Hemolysis ----------------
 st.header("Step 3: Vitamin & Hemolysis Markers")
 
 vit_done = selected(st.selectbox("B12/Folate available?", ["Select…", "Yes", "No"], index=0))
@@ -220,7 +236,7 @@ if hemo_done == "Yes":
     with colH3:
         indirect_bili = selected(st.selectbox("Indirect Bilirubin", ["Select…", "Normal", "High", "Unknown"], index=0))
 
-# ---------- Step 4: Other Contributing Factors ----------
+# ---------------- Step 4: Other Contributors ----------------
 st.header("Step 4: Other Contributing Factors")
 
 tsh_done = selected(st.selectbox("TSH available?", ["Select…", "Yes", "No"], index=0))
@@ -233,7 +249,7 @@ egfr = None
 if egfr_done == "Yes":
     egfr = to_float(st.text_input("eGFR (mL/min/1.73m²)", value="", placeholder="leave blank if unknown"))
 
-# ---------- Step 5: High-yield Medications / Exposures ----------
+# ---------------- Step 5: Meds/Exposures ----------------
 st.header("Step 5: High-yield Medications / Exposures (optional)")
 exposures_done = selected(st.selectbox("Medication/exposure screen completed?", ["Select…", "Yes", "No"], index=0))
 exposures = []
@@ -256,17 +272,7 @@ if exposures_done == "Yes":
         ],
     )
 
-# ---------- Derived: marrow response ----------
-marrow_response = "Unknown"
-if rpi is not None:
-    marrow_response = "Appropriate (RPI ≥2)" if rpi >= 2 else "Inadequate (RPI <2)"
-elif retic_qual is not None:
-    if retic_qual == "High":
-        marrow_response = "Appropriate/High retic"
-    elif retic_qual == "Low":
-        marrow_response = "Inadequate/Low retic"
-
-# ---------- Output gating ----------
+# ---------------- Output ----------------
 st.markdown("---")
 st.subheader("🩺 Differential & Recommended Workup")
 
@@ -278,7 +284,7 @@ if mcv_cat is None:
 else:
     st.markdown(f"**Marrow response:** {marrow_response}")
 
-    # ---------- Severity prompts (primary care framing; informational) ----------
+    # Severity / triage prompts (informational, primary care framing)
     triage_msgs = []
     if hb is not None:
         if hb < 6:
@@ -297,7 +303,6 @@ else:
     if triage_msgs:
         st.warning("**Severity/triage prompts (informational):**\n- " + "\n- ".join(triage_msgs))
 
-    # ---------- Build differential ----------
     dx = []
 
     # Microcytic
@@ -330,7 +335,7 @@ else:
 
     # Normocytic
     if mcv_cat == "Normocytic (80–100)":
-        if marrow_response in ["Appropriate (RPI ≥2)", "Appropriate/High retic"]:
+        if marrow_response in ("Appropriate (RPI ≥2)", "Appropriate/High retic"):
             add_item(
                 dx,
                 "Blood loss (acute or occult)",
@@ -343,7 +348,7 @@ else:
                 "Appropriate/High retic can be seen in hemolysis; confirm with labs and smear.",
                 ["Hemolysis panel (LDH, haptoglobin, bilirubin) if not done", "Peripheral smear", "DAT/Coombs if suspected AIHA"],
             )
-        elif marrow_response in ["Inadequate (RPI <2)", "Inadequate/Low retic", "Unknown"]:
+        else:
             add_item(
                 dx,
                 "Anemia of chronic inflammation",
@@ -388,7 +393,7 @@ else:
                 ["TSH (if not done)", "LFTs", "Peripheral smear", "Consider hematology referral if persistent/unexplained"],
             )
 
-    # Hemolysis pattern (only if selected and consistent)
+    # Hemolysis triad (only if selected and consistent)
     if ldh == "High" and haptoglobin == "Low" and indirect_bili == "High":
         add_item(
             dx,
@@ -450,15 +455,9 @@ else:
             ["Review timing vs anemia onset", "Trend CBC", "Consider hematology referral if severe/persistent or with other cytopenias"],
         )
 
-    # De-duplicate by title (preserve order)
-    seen = set()
-    dx_unique = []
-    for item in dx:
-        if item["title"] not in seen:
-            dx_unique.append(item)
-            seen.add(item["title"])
+    dx_unique = dedupe_by_title(dx)
 
-    if len(dx_unique) == 0:
+    if not dx_unique:
         st.info("Add more data to generate a differential.")
     else:
         for i, item in enumerate(dx_unique[:10], start=1):
@@ -470,51 +469,43 @@ else:
                 for w in item["workup"]:
                     st.markdown(f"- {w}")
 
-    # ---------- Hematology referral guidance (primary care framing) ----------
+    # Hematology referral guidance (primary care framing)
     st.markdown("---")
     st.subheader("📣 When to consider Hematology referral (primary care)")
 
     referral_reasons = []
 
-    # Severe/urgent patterns (informational)
     if hb is not None and hb < 7 and (symptomatic_any in ("Yes", "Unknown") or high_risk_symptoms in ("Yes", "Unknown")):
         referral_reasons.append("Severe anemia with symptoms/high-risk features (coordinate urgent evaluation; hematology input may be appropriate).")
 
-    # Marrow flags
     if other_cytopenias in ("Yes", "Unknown"):
         referral_reasons.append("Anemia with other cytopenias (WBC/platelets low) or pancytopenia.")
     if smear_abnormal in ("Yes", "Unknown"):
         referral_reasons.append("Abnormal smear (e.g., blasts, schistocytes, marked dysplasia) or concerning morphology.")
-    if marrow_response in ("Inadequate (RPI <2)", "Inadequate/Low retic") and mcv_cat == "Normocytic (80–100)":
-        referral_reasons.append("Hypoproliferative normocytic anemia not explained by common primary-care etiologies (e.g., iron/B12/folate/TSH/CKD).")
-
-    # Hemolysis concern
     if (ldh == "High" and haptoglobin == "Low") or (indirect_bili == "High" and ldh == "High"):
         referral_reasons.append("Suspected hemolysis (especially if unexplained, severe, or with abnormal smear).")
 
-    # Persistent / unclear
-    if iron_done in ("No", "Select…") and mcv_cat == "Microcytic (<80)":
-        referral_reasons.append("Microcytic anemia without available iron studies (or unclear etiology after initial workup).")
-    if mcv_cat == "Macrocytic (>100)" and vit_done in ("No", "Select…"):
+    if mcv_cat == "Microcytic (<80)" and iron_done in (None, "No"):
+        referral_reasons.append("Microcytic anemia with missing iron studies or unclear etiology after initial evaluation.")
+    if mcv_cat == "Macrocytic (>100)" and vit_done in (None, "No"):
         referral_reasons.append("Macrocytic anemia without B12/folate evaluation or persistent macrocytosis without clear cause.")
 
-    if not referral_reasons:
-        st.caption("No specific referral triggers detected from entered data (limited by missing inputs).")
-    else:
+    if referral_reasons:
         for r in referral_reasons[:8]:
             st.markdown(f"- {r}")
+    else:
+        st.caption("No specific referral triggers detected from entered data (limited by missing inputs).")
 
-# ---------- Baseline items ----------
+# Baseline items footer
 st.markdown("---")
 st.subheader("Baseline items to consider (if not already available)")
-baseline = [
+for b in [
     "Repeat CBC with indices + RDW",
     "Peripheral smear review",
     "Reticulocyte % and/or absolute retic count",
     "Iron studies (ferritin, iron, TIBC, TSAT)",
     "B12 and folate",
-]
-for b in baseline:
+]:
     st.markdown(f"- {b}")
 
 st.markdown("---")
