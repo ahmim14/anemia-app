@@ -471,7 +471,7 @@ else:
 
     # Hematology referral guidance (primary care framing)
     st.markdown("---")
-    st.subheader("📣 When to consider Hematology referral (primary care)")
+    st.subheader("📣 When to consider Hematology referral")
 
     referral_reasons = []
 
