@@ -1,3 +1,4 @@
+import re
 import streamlit as st
 
 st.set_page_config(page_title="Anemia Evaluation Tool", layout="centered")
@@ -6,6 +7,17 @@ st.title("🩸 Anemia Evaluation Assistant")
 st.markdown(
     "An interactive, stepwise tool to support anemia workup in primary care. "
     "**Educational use only**"
+)
+
+# ---------------- Mode Toggles ----------------
+colM1, colM2 = st.columns([2, 1])
+with colM1:
+    teaching_mode = st.toggle("Teaching Mode (decision tree + reasoning)", value=False)
+with colM2:
+    show_all_details = st.toggle("Show all details", value=False) if teaching_mode else False
+
+st.caption(
+    "Tip: Keep Teaching Mode off for a clean point-of-care workflow; turn it on for structured reasoning."
 )
 
 # ---------------- Helpers ----------------
@@ -51,8 +63,16 @@ def maturation_factor(hct):
         return 2.0
     return 2.5
 
-def add_item(lst, title, rationale="", workup=None):
-    lst.append({"title": title, "rationale": rationale, "workup": workup or []})
+def add_item(lst, title, rationale="", workup=None, rule="", what_changes=""):
+    lst.append(
+        {
+            "title": title,
+            "rationale": rationale,
+            "workup": workup or [],
+            "rule": rule,
+            "what_changes": what_changes,
+        }
+    )
 
 def dedupe_by_title(items):
     seen = set()
@@ -62,6 +82,138 @@ def dedupe_by_title(items):
             out.append(it)
             seen.add(it["title"])
     return out
+
+def _has_value(x):
+    return x is not None
+
+def build_known(inputs):
+    """
+    Track which labs/data are already entered so we can:
+      - hide 'check X' suggestions in Clinician view
+      - replace with 'Already entered: ...' in Teaching view
+    """
+    known = {
+        "tsh": _has_value(inputs["tsh"]),
+        "egfr": _has_value(inputs["egfr"]),
+        "ferritin": _has_value(inputs["ferritin"]),
+        "tsat": _has_value(inputs["tsat"]),
+        "b12": _has_value(inputs["b12"]),
+        "folate": _has_value(inputs["folate"]),
+        "ldh": _has_value(inputs["ldh"]),
+        "haptoglobin": _has_value(inputs["haptoglobin"]),
+        "indirect_bili": _has_value(inputs["indirect_bili"]),
+        "retic_pct": _has_value(inputs["retic_pct"]),
+        "retic_qual": _has_value(inputs["retic_qual"]),
+        "rpi": _has_value(inputs["rpi"]),
+    }
+    return known
+
+# Workup filtering: map line -> which "key" it depends on
+WORKUP_PATTERNS = [
+    (re.compile(r"\bTSH\b", re.I), "tsh"),
+    (re.compile(r"\beGFR\b|\bGFR\b", re.I), "egfr"),
+    (re.compile(r"\bFerritin\b", re.I), "ferritin"),
+    (re.compile(r"\bTSAT\b|\bTransferrin Saturation\b|\btransferrin\b", re.I), "tsat"),
+    (re.compile(r"\bIron studies\b|\bTIBC\b|\biron\b", re.I), "ferritin"),  # treat as iron-entered if ferritin present
+    (re.compile(r"\bB12\b|\bVitamin B12\b", re.I), "b12"),
+    (re.compile(r"\bFolate\b", re.I), "folate"),
+    (re.compile(r"\bLDH\b", re.I), "ldh"),
+    (re.compile(r"\bHaptoglobin\b", re.I), "haptoglobin"),
+    (re.compile(r"\bIndirect Bilirubin\b|\bBilirubin\b", re.I), "indirect_bili"),
+    (re.compile(r"\bRetic\b|\bReticulocyte\b", re.I), "retic_pct"),  # numeric retic entered
+]
+
+def suppress_or_annotate_workup_line(line: str, known: dict, inputs: dict, teaching: bool):
+    """
+    Returns:
+      - None if line should be hidden
+      - or a replacement string if teaching and we want an 'Already entered' annotation
+      - or the original line
+    """
+    for pat, key in WORKUP_PATTERNS:
+        if pat.search(line):
+            if known.get(key, False):
+                if teaching:
+                    # Make a nice "Already entered" note
+                    if key == "tsh":
+                        return f"Already entered: TSH = {fmt(inputs['tsh'], 2)}"
+                    if key == "egfr":
+                        return f"Already entered: eGFR = {fmt(inputs['egfr'], 0)}"
+                    if key == "ferritin":
+                        return f"Already entered: Ferritin = {fmt(inputs['ferritin'], 0)}"
+                    if key == "tsat":
+                        return f"Already entered: TSAT = {fmt(inputs['tsat'], 0)}%"
+                    if key == "b12":
+                        return f"Already entered: Vitamin B12 = {fmt(inputs['b12'], 0)}"
+                    if key == "folate":
+                        return f"Already entered: Folate = {fmt(inputs['folate'], 1)}"
+                    if key == "ldh":
+                        return f"Already entered: LDH = {inputs['ldh']}"
+                    if key == "haptoglobin":
+                        return f"Already entered: Haptoglobin = {inputs['haptoglobin']}"
+                    if key == "indirect_bili":
+                        return f"Already entered: Indirect bilirubin = {inputs['indirect_bili']}"
+                    return "Already entered."
+                return None
+            return line
+    return line
+
+def decision_tree_dot(mcv_cat, marrow_response, known, inputs):
+    """
+    Build a small dynamic tree that visually narrows as you input data.
+    Keep it simple + readable.
+    """
+    def node_style(active=False):
+        if active:
+            return 'shape="box", style="rounded,bold"'
+        return 'shape="box", style="rounded"'
+
+    def status_label(key, label):
+        return f"{label}: {'✅' if known.get(key, False) else '❓'}"
+
+    # Active flags
+    micro = mcv_cat == "Microcytic (<80)"
+    normo = mcv_cat == "Normocytic (80–100)"
+    macro = mcv_cat == "Macrocytic (>100)"
+
+    retic_known = known.get("rpi") or known.get("retic_pct") or known.get("retic_qual")
+    iron_known = known.get("ferritin") or known.get("tsat")
+    vits_known = known.get("b12") or known.get("folate")
+    hemo_known = known.get("ldh") or known.get("haptoglobin") or known.get("indirect_bili")
+
+    dot = ['digraph G { rankdir=TB; splines=false; nodesep=0.3; ranksep=0.35;']
+    dot.append(f'Start [{node_style(True)} label="Start"];')
+
+    dot.append(f'MCV [{node_style(mcv_cat is not None)} label="MCV category: {mcv_cat or "Select…"}"];')
+    dot.append('Start -> MCV;')
+
+    dot.append(f'Micro [{node_style(micro)} label="Microcytic (<80)"];')
+    dot.append(f'Normo [{node_style(normo)} label="Normocytic (80–100)"];')
+    dot.append(f'Macro [{node_style(macro)} label="Macrocytic (>100)"];')
+    dot.append('MCV -> Micro; MCV -> Normo; MCV -> Macro;')
+
+    # Micro branch
+    dot.append(f'Iron [{node_style(micro and iron_known)} label="{status_label("ferritin","Ferritin")}\\n{status_label("tsat","TSAT")}"];')
+    dot.append('Micro -> Iron;')
+    dot.append(f'MicroNext [{node_style(micro and not iron_known)} label="If iron studies missing:\\nfirst narrow with ferritin/TSAT"];')
+    dot.append('Micro -> MicroNext;')
+
+    # Normo branch
+    dot.append(f'Retic [{node_style(normo and retic_known)} label="Marrow response\\n(RPI/retic): {marrow_response}"];')
+    dot.append('Normo -> Retic;')
+    dot.append(f'NormoNext [{node_style(normo and not retic_known)} label="If retic/RPI missing:\\nthis is the key next step"];')
+    dot.append('Normo -> NormoNext;')
+    dot.append(f'Hemo [{node_style(normo and hemo_known)} label="{status_label("ldh","LDH")}\\n{status_label("haptoglobin","Haptoglobin")}\\n{status_label("indirect_bili","Indirect bili")}"];')
+    dot.append('Retic -> Hemo;')
+
+    # Macro branch
+    dot.append(f'Vits [{node_style(macro and vits_known)} label="{status_label("b12","B12")}\\n{status_label("folate","Folate")}"];')
+    dot.append('Macro -> Vits;')
+    dot.append(f'MacroOther [{node_style(macro)} label="{status_label("tsh","TSH")}\\nConsider LFTs + smear + meds/exposures"];')
+    dot.append('Vits -> MacroOther;')
+
+    dot.append('}')
+    return "\n".join(dot)
 
 # ---------------- Step 0: Symptoms & Severity ----------------
 st.header("Step 0: Symptoms & Severity")
@@ -114,9 +266,17 @@ with colB:
             "MCV category",
             ["Select…", "Microcytic (<80)", "Normocytic (80–100)", "Macrocytic (>100)"],
             index=0,
+            help="Microcytic: iron deficiency/thalassemia/inflammation; Normocytic: underproduction vs hemolysis/bleeding; Macrocytic: B12/folate vs non-megaloblastic causes.",
         )
     )
-    rdw = selected(st.selectbox("RDW", ["Select…", "Normal", "High", "Unknown"], index=0))
+    rdw = selected(
+        st.selectbox(
+            "RDW",
+            ["Select…", "Normal", "High", "Unknown"],
+            index=0,
+            help="High RDW can suggest mixed etiologies or evolving deficiency states; normal RDW may fit thal trait (context-dependent).",
+        )
+    )
 
 st.subheader("CBC context (optional)")
 colC1, colC2, colC3 = st.columns(3)
@@ -126,7 +286,7 @@ with colC1:
             "Other cytopenias (WBC or platelets low)?",
             ["Select…", "Yes", "No", "Unknown"],
             index=0,
-            help="If yes/unknown with persistent anemia, consider broader marrow evaluation.",
+            help="If yes/unknown with persistent anemia, broaden to marrow/process considerations.",
         )
     )
 with colC2:
@@ -135,6 +295,7 @@ with colC2:
             "Rapid onset / acute Hb drop suspected?",
             ["Select…", "Yes", "No", "Unknown"],
             index=0,
+            help="Acute drops raise bleeding/hemolysis concerns; trends matter.",
         )
     )
 with colC3:
@@ -150,12 +311,12 @@ with colC3:
 # ---------------- Reticulocytes + RPI ----------------
 st.subheader("Reticulocytes")
 
-# ✅ FIX: no Select… here (this is a UI choice, not a clinical unknown)
 retic_mode = st.radio(
     "Reticulocyte input",
     ["Qualitative (Low/Normal/High)", "Numeric (%)"],
     horizontal=True,
     index=0,
+    help="Retic/RPI helps separate underproduction from hemolysis/bleeding physiology.",
 )
 
 retic_qual = None
@@ -230,11 +391,11 @@ ldh = haptoglobin = indirect_bili = None
 if hemo_done == "Yes":
     colH1, colH2, colH3 = st.columns(3)
     with colH1:
-        ldh = selected(st.selectbox("LDH", ["Select…", "Normal", "High", "Unknown"], index=0))
+        ldh = selected(st.selectbox("LDH", ["Select…", "Normal", "High", "Unknown"], index=0, help="Hemolysis pattern often: LDH ↑"))
     with colH2:
-        haptoglobin = selected(st.selectbox("Haptoglobin", ["Select…", "Normal", "Low", "Unknown"], index=0))
+        haptoglobin = selected(st.selectbox("Haptoglobin", ["Select…", "Normal", "Low", "Unknown"], index=0, help="Hemolysis pattern often: haptoglobin ↓"))
     with colH3:
-        indirect_bili = selected(st.selectbox("Indirect Bilirubin", ["Select…", "Normal", "High", "Unknown"], index=0))
+        indirect_bili = selected(st.selectbox("Indirect Bilirubin", ["Select…", "Normal", "High", "Unknown"], index=0, help="Hemolysis pattern often: indirect bili ↑"))
 
 # ---------------- Step 4: Other Contributors ----------------
 st.header("Step 4: Other Contributing Factors")
@@ -270,7 +431,25 @@ if exposures_done == "Yes":
             "Zidovudine / other marrow-toxic antivirals",
             "Recent transfusion (last 3 months)",
         ],
+        help="This is a high-yield screen; it does not replace a full medication review.",
     )
+
+# ---------------- Collect inputs for filtering/teaching ----------------
+inputs = {
+    "tsh": tsh,
+    "egfr": egfr,
+    "ferritin": ferritin,
+    "tsat": transferrin_sat,
+    "b12": b12,
+    "folate": folate,
+    "ldh": ldh,
+    "haptoglobin": haptoglobin,
+    "indirect_bili": indirect_bili,
+    "retic_pct": retic_pct,
+    "retic_qual": retic_qual,
+    "rpi": rpi,
+}
+known = build_known(inputs)
 
 # ---------------- Output ----------------
 st.markdown("---")
@@ -283,6 +462,11 @@ if mcv_cat is None:
     )
 else:
     st.markdown(f"**Marrow response:** {marrow_response}")
+
+    # Teaching Mode: Decision tree (narrowing)
+    if teaching_mode:
+        with st.expander("🧠 Decision tree (narrows as you enter data)", expanded=True):
+            st.graphviz_chart(decision_tree_dot(mcv_cat, marrow_response, known, inputs))
 
     # Severity / triage prompts (informational, primary care framing)
     triage_msgs = []
@@ -317,6 +501,8 @@ else:
                     "Consider GI evaluation when appropriate (age/risk-based)",
                     "Consider celiac testing if indicated",
                 ],
+                rule="Ferritin < 30 → depleted iron stores likely.",
+                what_changes="If ferritin is normal/high but TSAT is low, consider inflammation/functional iron deficiency.",
             )
         elif ferritin is not None and ferritin >= 100 and transferrin_sat is not None and transferrin_sat < 20:
             add_item(
@@ -324,6 +510,8 @@ else:
                 "Anemia of chronic inflammation with functional iron deficiency",
                 "Ferritin may be normal/high with low TSAT in inflammatory states.",
                 ["CRP/ESR (if inflammatory disease suspected)", "Review chronic inflammatory/infectious disease history"],
+                rule="Ferritin ≥ 100 + TSAT < 20% can fit functional iron deficiency (context-dependent).",
+                what_changes="If ferritin is low instead, iron deficiency becomes more likely.",
             )
         else:
             add_item(
@@ -331,6 +519,8 @@ else:
                 "Thalassemia trait / hemoglobinopathy",
                 "Microcytosis without clear low ferritin may suggest thal trait or mixed etiologies.",
                 ["CBC indices review (RBC count, RDW)", "Peripheral smear", "Hemoglobin electrophoresis"],
+                rule="Microcytosis not explained by iron deficiency → consider hemoglobinopathy evaluation.",
+                what_changes="If ferritin is clearly low, prioritize iron deficiency pathway first.",
             )
 
     # Normocytic
@@ -341,12 +531,16 @@ else:
                 "Blood loss (acute or occult)",
                 "Appropriate/High retic suggests response to loss (or recovery phase).",
                 ["Assess bleeding history", "Consider iron studies if not done", "Stool testing/GI evaluation when appropriate"],
+                rule="RPI ≥ 2 (or high retic) suggests marrow response consistent with loss/hemolysis.",
+                what_changes="If retic/RPI is low, shift toward underproduction causes.",
             )
             add_item(
                 dx,
                 "Hemolysis",
                 "Appropriate/High retic can be seen in hemolysis; confirm with labs and smear.",
                 ["Hemolysis panel (LDH, haptoglobin, bilirubin) if not done", "Peripheral smear", "DAT/Coombs if suspected AIHA"],
+                rule="High retic with anemia → confirm hemolysis with LDH/haptoglobin/bili + smear.",
+                what_changes="If hemolysis markers are normal and bleeding is unlikely, reconsider underproduction or mixed etiologies.",
             )
         else:
             add_item(
@@ -354,6 +548,8 @@ else:
                 "Anemia of chronic inflammation",
                 "Common hypoproliferative normocytic pattern in chronic disease.",
                 ["CRP/ESR if clinically indicated", "Complete iron studies if missing", "Review chronic disease burden"],
+                rule="Normocytic + low retic/RPI → underproduction pattern; chronic disease is common.",
+                what_changes="If RPI is high, prioritize blood loss/hemolysis branches.",
             )
             if egfr is not None and egfr < 60:
                 add_item(
@@ -361,12 +557,16 @@ else:
                     "Anemia associated with CKD",
                     "CKD can cause hypoproliferative normocytic anemia; likelihood increases as eGFR declines.",
                     ["Confirm iron status (ferritin, TSAT)", "Assess for other contributors (B12/folate, bleeding)"],
+                    rule="Lower eGFR increases likelihood of CKD-related underproduction.",
+                    what_changes="If eGFR is normal, deprioritize CKD as primary driver.",
                 )
             add_item(
                 dx,
                 "Bone marrow underproduction (consider if persistent or with other cytopenias)",
                 "Low retic/other cytopenias can suggest marrow process or suppression.",
                 ["Peripheral smear", "Repeat CBC trend", "Consider hematology referral if unexplained or if other cytopenias present"],
+                rule="Low retic + (other cytopenias or abnormal smear) → consider marrow process.",
+                what_changes="If isolated anemia with clear deficiency/bleeding source, marrow workup may be unnecessary.",
             )
 
     # Macrocytic
@@ -377,6 +577,8 @@ else:
                 "Vitamin B12 deficiency",
                 "Low B12 supports megaloblastic anemia.",
                 ["MMA ± homocysteine if borderline", "Assess diet/malabsorption risks", "Consider IF antibody if pernicious anemia suspected"],
+                rule="B12 < 200 is a common low threshold (lab-specific).",
+                what_changes="If B12 is borderline (e.g., 200–300), MMA can clarify functional deficiency.",
             )
         if folate is not None and folate < 4:
             add_item(
@@ -384,6 +586,8 @@ else:
                 "Folate deficiency",
                 "Low folate supports megaloblastic anemia.",
                 ["Assess nutrition/alcohol use", "Review folate-antagonist meds/exposures"],
+                rule="Low folate supports megaloblastic etiology.",
+                what_changes="If folate is normal and macrocytosis persists, evaluate non-megaloblastic causes.",
             )
         if (b12 is None or b12 >= 200) and (folate is None or folate >= 4):
             add_item(
@@ -391,6 +595,8 @@ else:
                 "Non-megaloblastic macrocytosis (alcohol, liver disease, hypothyroid, meds, marrow disorders)",
                 "Macrocytosis without clear B12/folate deficiency suggests alternative etiologies.",
                 ["TSH (if not done)", "LFTs", "Peripheral smear", "Consider hematology referral if persistent/unexplained"],
+                rule="Macrocytosis with normal B12/folate → broaden to non-megaloblastic causes.",
+                what_changes="If B12/folate later come back low, return to megaloblastic pathway.",
             )
 
     # Hemolysis triad (only if selected and consistent)
@@ -400,15 +606,19 @@ else:
             "Hemolysis (supported by labs)",
             "LDH high + haptoglobin low + indirect bilirubin high is a classic hemolysis pattern.",
             ["Peripheral smear (schistocytes/spherocytes)", "DAT/Coombs", "Retic absolute count", "Consider G6PD if indicated"],
+            rule="LDH↑ + hapto↓ + indirect bili↑ → hemolysis pattern.",
+            what_changes="Smear/DAT helps distinguish microangiopathy vs AIHA vs other causes.",
         )
 
-    # Hypothyroid
+    # Hypothyroid (note: this won’t fire for low TSH)
     if tsh is not None and tsh > 5:
         add_item(
             dx,
             "Hypothyroidism-associated anemia",
             "Elevated TSH can contribute to normocytic/macrocytic anemia.",
             ["Repeat TSH/FT4 if needed", "Evaluate other causes in parallel (iron/B12/folate)"],
+            rule="TSH elevated can be associated with anemia (mechanisms vary).",
+            what_changes="If TSH is low or normal, do not attribute anemia to hypothyroidism.",
         )
 
     # Exposure-driven adds
@@ -460,14 +670,33 @@ else:
     if not dx_unique:
         st.info("Add more data to generate a differential.")
     else:
+        # Less busy: show titles; details in expander unless Teaching Mode + show_all_details
         for i, item in enumerate(dx_unique[:10], start=1):
-            st.markdown(f"### {i}. {item['title']}")
-            if item["rationale"]:
-                st.markdown(f"**Why:** {item['rationale']}")
-            if item["workup"]:
-                st.markdown("**Suggested next workup:**")
-                for w in item["workup"]:
-                    st.markdown(f"- {w}")
+            title_line = f"{i}. {item['title']}"
+            if not teaching_mode and not show_all_details:
+                with st.expander(title_line, expanded=False):
+                    if item["workup"]:
+                        st.markdown("**Suggested next workup:**")
+                        for w in item["workup"]:
+                            w2 = suppress_or_annotate_workup_line(w, known, inputs, teaching=False)
+                            if w2:
+                                st.markdown(f"- {w2}")
+            else:
+                expanded_default = True if show_all_details else False
+                with st.expander(title_line, expanded=expanded_default):
+                    if item["rationale"]:
+                        st.markdown(f"**Why:** {item['rationale']}")
+                    if teaching_mode:
+                        if item.get("rule"):
+                            st.markdown(f"**Rule triggered:** {item['rule']}")
+                        if item.get("what_changes"):
+                            st.markdown(f"**What would change this:** {item['what_changes']}")
+                    if item["workup"]:
+                        st.markdown("**Suggested next workup:**")
+                        for w in item["workup"]:
+                            w2 = suppress_or_annotate_workup_line(w, known, inputs, teaching=teaching_mode)
+                            if w2:
+                                st.markdown(f"- {w2}")
 
     # Hematology referral guidance (primary care framing)
     st.markdown("---")
@@ -496,17 +725,25 @@ else:
     else:
         st.caption("No specific referral triggers detected from entered data (limited by missing inputs).")
 
-# Baseline items footer
+# Baseline items footer (now filtered so it doesn't tell you to check what you already entered)
 st.markdown("---")
 st.subheader("Baseline items to consider (if not already available)")
-for b in [
+
+baseline = [
     "Repeat CBC with indices + RDW",
     "Peripheral smear review",
     "Reticulocyte % and/or absolute retic count",
     "Iron studies (ferritin, iron, TIBC, TSAT)",
     "B12 and folate",
-]:
-    st.markdown(f"- {b}")
+    "TSH",
+    "eGFR/creatinine",
+    "Hemolysis markers (LDH, haptoglobin, indirect bilirubin)",
+]
+
+for b in baseline:
+    b2 = suppress_or_annotate_workup_line(b, known, inputs, teaching=teaching_mode)
+    if b2:
+        st.markdown(f"- {b2}")
 
 st.markdown("---")
 st.caption("Created by Manal Ahmidouch – GMA Clinic • Med-Ed Track • For Educational Use Only")
