@@ -589,7 +589,7 @@ corrected_retic = None
 
 st.subheader("Reticulocytes")
 expand_retic = (mcv_cat == "Normocytic (80–100)")
-with st.expander("Retic / RPI (key for normocytic anemia)", expanded=expand_retic):
+with st.expander("Reticulocyte count / RPI ", expanded=expand_retic):
     retic_mode = st.radio(
         "Reticulocyte input",
         ["Qualitative (Low/Normal/High)", "Numeric (%)"],
