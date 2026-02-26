@@ -747,9 +747,14 @@ if mcv_cat is None:
 else:
     st.markdown(f"**MCV category:** {mcv_cat}  \n**Marrow response:** {marrow_response}")
 
-    # Differential build
+    # =========================================================
+    # Differential build (UPDATED: B12/Folate are GLOBAL)
+    # =========================================================
     dx = []
 
+    # -------------------------
+    # MCV-SPECIFIC DIFFERENTIALS
+    # -------------------------
     if mcv_cat == "Microcytic (<80)":
         if ferritin is not None and ferritin < 30:
             add_item(
@@ -848,29 +853,8 @@ else:
             )
 
     if mcv_cat == "Macrocytic (>100)":
-        if b12 is not None and b12 < 200:
-            add_item(
-                dx,
-                "Vitamin B12 deficiency",
-                "Low B12 supports a megaloblastic process.",
-                [
-                    "MMA +/- homocysteine (if borderline)",
-                    "Action: assess diet/malabsorption risks",
-                    "Intrinsic factor antibody (if pernicious anemia suspected)",
-                ],
-                priority=12,
-            )
-        if folate is not None and folate < 4:
-            add_item(
-                dx,
-                "Folate deficiency",
-                "Low folate supports a megaloblastic process.",
-                [
-                    "Action: assess nutrition/alcohol use",
-                    "Action: review folate-antagonist meds/exposures",
-                ],
-                priority=15,
-            )
+        # B12 and folate deficiency diagnoses are GLOBAL (below).
+        # This block focuses on secondary causes when B12/folate are not low.
         if (b12 is None or b12 >= 200) and (folate is None or folate >= 4):
             add_item(
                 dx,
@@ -885,6 +869,38 @@ else:
                 priority=25,
             )
 
+    # -------------------------
+    # GLOBAL RULES (NOT GATED BY MCV)
+    # Mixed deficiencies can normalize or microcytize MCV.
+    # -------------------------
+    if b12 is not None and b12 < 200:
+        add_item(
+            dx,
+            "Vitamin B12 deficiency",
+            "Low B12 supports a megaloblastic process; MCV may be normal or low if concurrent iron deficiency or mixed etiologies.",
+            [
+                "MMA +/- homocysteine (if borderline)",
+                "Action: assess diet/malabsorption risks",
+                "Intrinsic factor antibody (if pernicious anemia suspected)",
+            ],
+            priority=12,
+        )
+
+    if folate is not None and folate < 4:
+        add_item(
+            dx,
+            "Folate deficiency",
+            "Low folate supports a megaloblastic process; MCV may be normal or low if concurrent iron deficiency or mixed etiologies.",
+            [
+                "Action: assess nutrition/alcohol use",
+                "Action: review folate-antagonist meds/exposures",
+            ],
+            priority=15,
+        )
+
+    # -------------------------
+    # OTHER EXISTING RULES (UNCHANGED)
+    # -------------------------
     if ldh == "High" and haptoglobin == "Low" and indirect_bili == "High":
         add_item(
             dx,
