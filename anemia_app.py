@@ -323,10 +323,10 @@ def completeness_badge(known: dict):
     n_have = sum(1 for v in groups.values() if v)
 
     if n_have <= 1:
-        return "Low", "#dc2626"     # red
+        return "Low", "#dc2626"  # red
     if n_have <= 3:
         return "Medium", "#f59e0b"  # amber
-    return "High", "#16a34a"       # green
+    return "High", "#16a34a"  # green
 
 
 def pill(text, color_hex):
@@ -393,13 +393,15 @@ def breadcrumb_path(mcv_cat, marrow_response, known, inputs):
     return "Start"
 
 
+# =========================
+# Decision tree (Graphviz)
+# =========================
 def decision_tree_dot(mcv_cat, marrow_response, known):
     def node(label, active=False, dim=False):
         style = 'shape="box", style="rounded'
         style += ',bold"' if active else '"'
         color = ' color="gray" fontcolor="gray"' if dim else ""
-        safe_label = str(label).replace('"', "'")
-        safe_label = safe_label.replace("\n", "\\n")
+        safe_label = str(label).replace('"', "'").replace("\n", "\\n")
         return f'[{style}{color} label="{safe_label}"];'
 
     def status(label, ok):
@@ -495,7 +497,6 @@ def decision_tree_dot(mcv_cat, marrow_response, known):
 # ============================================================
 # UI: Inputs (no Step labels)
 # ============================================================
-
 st.header("Symptoms & severity")
 colS1, colS2 = st.columns(2)
 with colS1:
@@ -516,20 +517,8 @@ with colS1:
         )
     )
 with colS2:
-    active_bleeding = selected(
-        st.selectbox(
-            "Concern for active/ongoing bleeding?",
-            ["Select...", "Yes", "No", "Unknown"],
-            index=0,
-        )
-    )
-    cvd = selected(
-        st.selectbox(
-            "Significant cardiovascular disease (CAD/HF) present?",
-            ["Select...", "Yes", "No", "Unknown"],
-            index=0,
-        )
-    )
+    active_bleeding = selected(st.selectbox("Concern for active/ongoing bleeding?", ["Select...", "Yes", "No", "Unknown"], index=0))
+    cvd = selected(st.selectbox("Significant cardiovascular disease (CAD/HF) present?", ["Select...", "Yes", "No", "Unknown"], index=0))
 
 st.header("CBC basics")
 colA, colB = st.columns(2)
@@ -554,29 +543,11 @@ smear_abnormal = None
 with st.expander("CBC context (optional)", expanded=False):
     colC1, colC2, colC3 = st.columns(3)
     with colC1:
-        other_cytopenias = selected(
-            st.selectbox(
-                "Other cytopenias (WBC or platelets low)?",
-                ["Select...", "Yes", "No", "Unknown"],
-                index=0,
-            )
-        )
+        other_cytopenias = selected(st.selectbox("Other cytopenias (WBC or platelets low)?", ["Select...", "Yes", "No", "Unknown"], index=0))
     with colC2:
-        rapid_onset = selected(
-            st.selectbox(
-                "Rapid onset / acute Hb drop suspected?",
-                ["Select...", "Yes", "No", "Unknown"],
-                index=0,
-            )
-        )
+        rapid_onset = selected(st.selectbox("Rapid onset / acute Hb drop suspected?", ["Select...", "Yes", "No", "Unknown"], index=0))
     with colC3:
-        smear_abnormal = selected(
-            st.selectbox(
-                "Peripheral smear abnormal (if known)?",
-                ["Select...", "Yes", "No", "Unknown"],
-                index=0,
-            )
-        )
+        smear_abnormal = selected(st.selectbox("Peripheral smear abnormal (if known)?", ["Select...", "Yes", "No", "Unknown"], index=0))
 
 # Retic/RPI
 retic_qual = None
@@ -588,12 +559,7 @@ corrected_retic = None
 st.subheader("Reticulocytes")
 expand_retic = (mcv_cat == "Normocytic (80–100)")
 with st.expander("Reticulocyte count / RPI ", expanded=expand_retic):
-    retic_mode = st.radio(
-        "Reticulocyte input",
-        ["Qualitative (Low/Normal/High)", "Numeric (%)"],
-        horizontal=True,
-        index=0,
-    )
+    retic_mode = st.radio("Reticulocyte input", ["Qualitative (Low/Normal/High)", "Numeric (%)"], horizontal=True, index=0)
 
     if retic_mode == "Qualitative (Low/Normal/High)":
         retic_qual = selected(st.selectbox("Reticulocyte count", ["Select...", "Low", "Normal", "High"], index=0))
@@ -622,9 +588,7 @@ with st.expander("Reticulocyte count / RPI ", expanded=expand_retic):
     if rpi is not None:
         if rpi < 2:
             interp_lines.append("**RPI < 2:** underproduction physiology (hypoproliferative anemia).")
-            interp_lines.append(
-                "Common buckets: iron deficiency/functional iron deficiency, inflammation, CKD, marrow suppression, endocrine (e.g., hypothyroidism)."
-            )
+            interp_lines.append("Common buckets: iron deficiency/functional iron deficiency, inflammation, CKD, marrow suppression, endocrine (e.g., hypothyroidism).")
         else:
             interp_lines.append("**RPI ≥ 2:** appropriate marrow response.")
             interp_lines.append("Common buckets: blood loss (acute/occult) or hemolysis (confirm with markers + smear).")
@@ -634,9 +598,7 @@ with st.expander("Reticulocyte count / RPI ", expanded=expand_retic):
         elif retic_qual == "Low":
             interp_lines.append("**Low retic:** suggests underproduction physiology.")
         elif retic_qual == "Normal":
-            interp_lines.append(
-                "**Normal retic:** interpret in context of anemia severity; may be inappropriately low if Hb is significantly reduced."
-            )
+            interp_lines.append("**Normal retic:** interpret in context of anemia severity; may be inappropriately low if Hb is significantly reduced.")
     else:
         interp_lines.append("Enter retic (or retic %) to interpret marrow response.")
     st.info("\n\n".join(interp_lines))
@@ -729,6 +691,7 @@ inputs = {
 }
 known = build_known(inputs)
 
+# Teaching sidebar decision tree
 if teaching_mode:
     with st.sidebar:
         st.subheader("🧠 Live decision tree")
@@ -750,15 +713,13 @@ else:
 
     # -------------------------
     # Guardrail: NO ANEMIA (sex-specific Hb cutoffs)
+    # Only applies if sex is selected.
     # -------------------------
     no_anemia = False
-    if hb is not None:
+    if hb is not None and sex is not None:
         if sex == "Female" and hb >= 12:
             no_anemia = True
         elif sex == "Male" and hb >= 13:
-            no_anemia = True
-        elif sex is None and hb >= 12:
-            # fallback if sex not selected
             no_anemia = True
 
     if no_anemia:
@@ -766,13 +727,14 @@ else:
         st.caption("If symptoms persist, consider non-anemia etiologies or repeat CBC if clinically indicated.")
         st.stop()
 
+    # Differential build
     dx = []
 
     # -------------------------
     # MCV-SPECIFIC DIFFERENTIALS
     # -------------------------
     if mcv_cat == "Microcytic (<80)":
-        # NOTE: IDA is GLOBAL (below). Microcytic branch focuses on other patterns when not iron deficient.
+        # IDA is GLOBAL (below). Microcytic branch focuses on other patterns when not iron deficient.
         if ferritin is not None and ferritin >= 100 and transferrin_sat is not None and transferrin_sat < 20:
             add_item(
                 dx,
@@ -858,6 +820,8 @@ else:
             )
 
     if mcv_cat == "Macrocytic (>100)":
+        # B12 and folate deficiency diagnoses are GLOBAL (below).
+        # This block focuses on secondary causes when B12/folate are not low.
         if (b12 is None or b12 >= 200) and (folate is None or folate >= 4):
             add_item(
                 dx,
@@ -875,6 +839,7 @@ else:
     # -------------------------
     # GLOBAL RULES (NOT GATED BY MCV)
     # -------------------------
+    # Iron deficiency: triggers even if MCV is normocytic (early IDA / mixed anemia)
     if ferritin is not None and ferritin < 30:
         add_item(
             dx,
@@ -1006,11 +971,13 @@ else:
     dx_sorted = sorted(dx, key=lambda x: x.get("priority", 50))
     dx_unique = dedupe_by_title(dx_sorted)
 
+    # ---- Data completeness ----
     st.markdown("#### Data completeness")
     level_txt, level_color = completeness_badge(known)
     st.markdown(pill(level_txt, level_color), unsafe_allow_html=True)
     st.caption("Completeness reflects whether key lab groups were entered")
 
+    # ---- Next steps (POC) ----
     st.markdown("#### Next steps (POC)")
     base_next = next_most_informative(mcv_cat, marrow_response, known)
 
@@ -1031,10 +998,7 @@ else:
     actions = []
     for s in steps_filtered:
         s_norm = titlecase_first(s)
-        if any(
-            k in s_norm.lower()
-            for k in ["assess", "review", "consider", "trend", "counsel", "history", "refer", "evaluation", "coordinate"]
-        ):
+        if any(k in s_norm.lower() for k in ["assess", "review", "consider", "trend", "counsel", "history", "refer", "evaluation", "coordinate"]):
             actions.append(s_norm)
         else:
             tests.append(s_norm)
@@ -1059,6 +1023,7 @@ else:
         else:
             st.caption("No additional actions suggested based on entered data.")
 
+    # ---- Most likely etiologies ----
     st.markdown("#### Most likely etiologies (based on entered data)")
     if not dx_unique:
         st.info("Enter more data to generate a ranked differential.")
@@ -1070,6 +1035,7 @@ else:
             for i, item in enumerate(top, 1):
                 st.markdown(f"**{i}. {item['title']}**")
 
+    # ---- Details ----
     st.markdown("---")
     st.header("Differential details")
     if not dx_unique:
