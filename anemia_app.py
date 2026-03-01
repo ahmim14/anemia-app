@@ -393,9 +393,6 @@ def breadcrumb_path(mcv_cat, marrow_response, known, inputs):
     return "Start"
 
 
-# =========================
-# Decision tree (Graphviz)
-# =========================
 def decision_tree_dot(mcv_cat, marrow_response, known):
     def node(label, active=False, dim=False):
         style = 'shape="box", style="rounded'
@@ -540,6 +537,7 @@ with colA:
     hb = to_float(st.text_input("Hemoglobin (g/dL)", value="", placeholder="leave blank if unknown"))
     hct = to_float(st.text_input("Hematocrit (%)", value="", placeholder="leave blank if unknown"))
 with colB:
+    sex = selected(st.selectbox("Sex", ["Select...", "Female", "Male"], index=0))
     mcv_cat = selected(
         st.selectbox(
             "MCV category",
@@ -624,7 +622,9 @@ with st.expander("Reticulocyte count / RPI ", expanded=expand_retic):
     if rpi is not None:
         if rpi < 2:
             interp_lines.append("**RPI < 2:** underproduction physiology (hypoproliferative anemia).")
-            interp_lines.append("Common buckets: iron deficiency/functional iron deficiency, inflammation, CKD, marrow suppression, endocrine (e.g., hypothyroidism).")
+            interp_lines.append(
+                "Common buckets: iron deficiency/functional iron deficiency, inflammation, CKD, marrow suppression, endocrine (e.g., hypothyroidism)."
+            )
         else:
             interp_lines.append("**RPI ≥ 2:** appropriate marrow response.")
             interp_lines.append("Common buckets: blood loss (acute/occult) or hemolysis (confirm with markers + smear).")
@@ -634,7 +634,9 @@ with st.expander("Reticulocyte count / RPI ", expanded=expand_retic):
         elif retic_qual == "Low":
             interp_lines.append("**Low retic:** suggests underproduction physiology.")
         elif retic_qual == "Normal":
-            interp_lines.append("**Normal retic:** interpret in context of anemia severity; may be inappropriately low if Hb is significantly reduced.")
+            interp_lines.append(
+                "**Normal retic:** interpret in context of anemia severity; may be inappropriately low if Hb is significantly reduced."
+            )
     else:
         interp_lines.append("Enter retic (or retic %) to interpret marrow response.")
     st.info("\n\n".join(interp_lines))
@@ -727,7 +729,6 @@ inputs = {
 }
 known = build_known(inputs)
 
-# Teaching sidebar decision tree
 if teaching_mode:
     with st.sidebar:
         st.subheader("🧠 Live decision tree")
@@ -747,28 +748,32 @@ if mcv_cat is None:
 else:
     st.markdown(f"**MCV category:** {mcv_cat}  \n**Marrow response:** {marrow_response}")
 
-    # =========================================================
-    # Differential build (UPDATED: B12/Folate are GLOBAL)
-    # =========================================================
+    # -------------------------
+    # Guardrail: NO ANEMIA (sex-specific Hb cutoffs)
+    # -------------------------
+    no_anemia = False
+    if hb is not None:
+        if sex == "Female" and hb >= 12:
+            no_anemia = True
+        elif sex == "Male" and hb >= 13:
+            no_anemia = True
+        elif sex is None and hb >= 12:
+            # fallback if sex not selected
+            no_anemia = True
+
+    if no_anemia:
+        st.success("No anemia detected based on entered hemoglobin.")
+        st.caption("If symptoms persist, consider non-anemia etiologies or repeat CBC if clinically indicated.")
+        st.stop()
+
     dx = []
 
     # -------------------------
     # MCV-SPECIFIC DIFFERENTIALS
     # -------------------------
     if mcv_cat == "Microcytic (<80)":
-        if ferritin is not None and ferritin < 30:
-            add_item(
-                dx,
-                "Iron deficiency anemia",
-                "Low ferritin supports depleted iron stores.",
-                [
-                    "Action: assess source of blood loss (GI/menstrual)",
-                    "Action: consider GI evaluation when appropriate (age/risk-based)",
-                    "Action: consider celiac testing if indicated",
-                ],
-                priority=10,
-            )
-        elif ferritin is not None and ferritin >= 100 and transferrin_sat is not None and transferrin_sat < 20:
+        # NOTE: IDA is GLOBAL (below). Microcytic branch focuses on other patterns when not iron deficient.
+        if ferritin is not None and ferritin >= 100 and transferrin_sat is not None and transferrin_sat < 20:
             add_item(
                 dx,
                 "Anemia of chronic inflammation with functional iron deficiency",
@@ -853,8 +858,6 @@ else:
             )
 
     if mcv_cat == "Macrocytic (>100)":
-        # B12 and folate deficiency diagnoses are GLOBAL (below).
-        # This block focuses on secondary causes when B12/folate are not low.
         if (b12 is None or b12 >= 200) and (folate is None or folate >= 4):
             add_item(
                 dx,
@@ -871,8 +874,20 @@ else:
 
     # -------------------------
     # GLOBAL RULES (NOT GATED BY MCV)
-    # Mixed deficiencies can normalize or microcytize MCV.
     # -------------------------
+    if ferritin is not None and ferritin < 30:
+        add_item(
+            dx,
+            "Iron deficiency anemia",
+            "Low ferritin supports depleted iron stores; can be normocytic early or with mixed etiologies.",
+            [
+                "Action: assess source of blood loss (GI/menstrual)",
+                "Action: consider GI evaluation when appropriate (age/risk-based)",
+                "Action: consider celiac testing if indicated",
+            ],
+            priority=9,
+        )
+
     if b12 is not None and b12 < 200:
         add_item(
             dx,
@@ -991,13 +1006,11 @@ else:
     dx_sorted = sorted(dx, key=lambda x: x.get("priority", 50))
     dx_unique = dedupe_by_title(dx_sorted)
 
-    # ---- Data completeness ----
     st.markdown("#### Data completeness")
     level_txt, level_color = completeness_badge(known)
     st.markdown(pill(level_txt, level_color), unsafe_allow_html=True)
     st.caption("Completeness reflects whether key lab groups were entered")
 
-    # ---- Next steps (POC) ----
     st.markdown("#### Next steps (POC)")
     base_next = next_most_informative(mcv_cat, marrow_response, known)
 
@@ -1018,7 +1031,10 @@ else:
     actions = []
     for s in steps_filtered:
         s_norm = titlecase_first(s)
-        if any(k in s_norm.lower() for k in ["assess", "review", "consider", "trend", "counsel", "history", "refer", "evaluation", "coordinate"]):
+        if any(
+            k in s_norm.lower()
+            for k in ["assess", "review", "consider", "trend", "counsel", "history", "refer", "evaluation", "coordinate"]
+        ):
             actions.append(s_norm)
         else:
             tests.append(s_norm)
@@ -1043,7 +1059,6 @@ else:
         else:
             st.caption("No additional actions suggested based on entered data.")
 
-    # ---- Most likely etiologies ----
     st.markdown("#### Most likely etiologies (based on entered data)")
     if not dx_unique:
         st.info("Enter more data to generate a ranked differential.")
@@ -1055,7 +1070,6 @@ else:
             for i, item in enumerate(top, 1):
                 st.markdown(f"**{i}. {item['title']}**")
 
-    # ---- Details ----
     st.markdown("---")
     st.header("Differential details")
     if not dx_unique:
