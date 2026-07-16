@@ -1,13 +1,47 @@
 import re
 import streamlit as st
 
-st.set_page_config(page_title="Anemia Evaluation Tool", layout="centered")
-
-st.title("🩸 Anemia Evaluation Assistant")
-st.markdown(
-    "A stepwise tool to support anemia workup in primary care. "
-    "**Educational use only.**"
+st.set_page_config(
+    page_title="AnemiaDx",
+    page_icon="🩸",
+    layout="centered",
+    initial_sidebar_state="expanded",
 )
+
+st.markdown(
+    """
+    <style>
+        .block-container {max-width: 980px; padding-top: 2rem; padding-bottom: 3rem;}
+        [data-testid="stSidebar"] {background: #fbfbfc;}
+        .anemiadx-hero {
+            padding: 1.35rem 1.5rem;
+            border: 1px solid rgba(49, 51, 63, 0.14);
+            border-radius: 20px;
+            background: linear-gradient(135deg, rgba(183, 28, 28, 0.08), rgba(255,255,255,0.98));
+            margin-bottom: 1rem;
+        }
+        .anemiadx-title {font-size: 2.25rem; font-weight: 750; letter-spacing: -0.03em; margin: 0;}
+        .anemiadx-subtitle {font-size: 1.02rem; opacity: 0.78; margin: 0.35rem 0 0 0;}
+        .next-card {
+            padding: 0.9rem 1rem;
+            border-radius: 14px;
+            border: 1px solid rgba(183, 28, 28, 0.24);
+            background: rgba(183, 28, 28, 0.06);
+            margin: 0.4rem 0 1rem 0;
+        }
+        .next-card-label {font-size: 0.74rem; font-weight: 750; letter-spacing: 0.08em; opacity: 0.68;}
+        .next-card-value {font-size: 1rem; font-weight: 650; margin-top: 0.22rem;}
+        div[data-testid="stExpander"] {border-radius: 14px;}
+        div[data-testid="stMetric"] {border: 1px solid rgba(49,51,63,.10); padding: .75rem; border-radius: 12px;}
+    </style>
+    <div class="anemiadx-hero">
+        <p class="anemiadx-title">🩸 AnemiaDx</p>
+        <p class="anemiadx-subtitle">A stepwise clinical reasoning tool for anemia evaluation and resident education.</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+st.caption("Educational decision support only — not a substitute for clinical judgment.")
 
 # ---------------- Mode toggles ----------------
 colM1, colM2 = st.columns([2, 1])
@@ -110,6 +144,11 @@ def dedupe_lines(lines):
 # =========================
 # “Already entered” tracking
 # =========================
+def known_choice(value):
+    """True only when a categorical result was actually provided."""
+    return value not in (None, "Unknown")
+
+
 def build_known(inputs: dict):
     known = {
         "tsh": inputs["tsh"] is not None,
@@ -118,12 +157,13 @@ def build_known(inputs: dict):
         "tsat": inputs["tsat"] is not None,
         "b12": inputs["b12"] is not None,
         "folate": inputs["folate"] is not None,
-        "ldh": inputs["ldh"] is not None,
-        "haptoglobin": inputs["haptoglobin"] is not None,
-        "indirect_bili": inputs["indirect_bili"] is not None,
+        "ldh": known_choice(inputs["ldh"]),
+        "haptoglobin": known_choice(inputs["haptoglobin"]),
+        "indirect_bili": known_choice(inputs["indirect_bili"]),
         "retic_pct": inputs["retic_pct"] is not None,
-        "retic_qual": inputs["retic_qual"] is not None,
+        "retic_qual": known_choice(inputs["retic_qual"]),
         "rpi": inputs["rpi"] is not None,
+        "smear": known_choice(inputs.get("smear_abnormal")),
     }
     known["iron_any"] = known["ferritin"] or known["tsat"]
     known["hemo_any"] = known["ldh"] or known["haptoglobin"] or known["indirect_bili"]
@@ -281,6 +321,12 @@ def expand_and_filter_suggestion(line: str, known: dict, inputs: dict, teaching:
 
         return [s]
 
+    # --- Peripheral smear ---
+    if re.search(r"\bperipheral smear\b|\bsmear review\b|\breview smear\b", s, flags=re.I):
+        if known.get("smear", False):
+            return []
+        return ["Peripheral smear review"]
+
     # --- Retic/RPI ---
     if re.search(r"\bretic\b|\breticulocyte\b|\bRPI\b", s, flags=re.I):
         if known.get("retic_any", False):
@@ -357,8 +403,14 @@ def next_most_informative(mcv_cat, marrow_response, known):
     if mcv_cat == "Normocytic (80–100)":
         if not known["retic_any"]:
             return ["Reticulocyte count / RPI"]
-        if marrow_response in ("Appropriate (RPI ≥2)", "Appropriate/High retic") and not known["hemo_any"]:
-            return ["Hemolysis markers (LDH, haptoglobin, indirect bilirubin)", "Peripheral smear review"]
+        if marrow_response in ("Appropriate (RPI ≥2)", "Appropriate/High retic"):
+            missing = []
+            if not known["hemo_any"]:
+                missing.append("Hemolysis markers (LDH, haptoglobin, indirect bilirubin)")
+            if not known.get("smear", False):
+                missing.append("Peripheral smear review")
+            if missing:
+                return missing
         return ["Action: review chronic disease/CKD contribution; trend CBC"]
     if mcv_cat == "Macrocytic (>100)":
         if not (known["b12"] and known["folate"]):
@@ -419,9 +471,6 @@ def decision_tree_dot(mcv_cat, marrow_response, known):
     mcv_label_value = mcv_cat if mcv_cat is not None else "Select..."
     mcv_node_label = f"MCV: {mcv_label_value}"
 
-    nxt = next_most_informative(mcv_cat, marrow_response, known)
-    nxt_label = "NEXT MOST INFORMATIVE:\n" + "\n".join(nxt)
-
     dot = [
         "digraph G {",
         "rankdir=TB;",
@@ -478,17 +527,6 @@ def decision_tree_dot(mcv_cat, marrow_response, known):
     other_label = "\n".join([status("TSH", known["tsh"]), "Consider LFTs/smear/meds"])
     dot.append(f"Other {node(other_label, active=macro, dim=dim_macro)}")
     dot.append("Vits -> Other;")
-
-    dot.append(f"Next {node(nxt_label, active=True)}")
-
-    if micro:
-        dot.append("Iron -> Next;")
-    elif normo:
-        dot.append("Hemo -> Next;")
-    elif macro:
-        dot.append("Other -> Next;")
-    else:
-        dot.append("MCV -> Next;")
 
     dot.append("}")
     return "\n".join(dot)
@@ -688,23 +726,35 @@ inputs = {
     "retic_pct": retic_pct,
     "retic_qual": retic_qual,
     "rpi": rpi,
+    "smear_abnormal": smear_abnormal,
 }
 known = build_known(inputs)
 
 # Teaching sidebar decision tree
 if teaching_mode:
     with st.sidebar:
-        st.subheader("🧠 Live decision tree")
-        st.caption(f"Path: {breadcrumb_path(mcv_cat, marrow_response, known, inputs)}")
-        st.graphviz_chart(decision_tree_dot(mcv_cat, marrow_response, known))
-        st.caption("Updates as you enter data.")
+        st.subheader("🧠 Live reasoning map")
+        next_items = next_most_informative(mcv_cat, marrow_response, known)
+        next_text = "<br>".join(titlecase_first(x.replace("Action:", "").strip()) for x in next_items)
+        st.markdown(
+            f"""
+            <div class="next-card">
+                <div class="next-card-label">NEXT MOST INFORMATIVE</div>
+                <div class="next-card-value">{next_text}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.caption(f"Current path: {breadcrumb_path(mcv_cat, marrow_response, known, inputs)}")
+        st.graphviz_chart(decision_tree_dot(mcv_cat, marrow_response, known), use_container_width=True)
+        st.caption("The map updates as data are entered. The recommendation card is intentionally separate from the flow map.")
 
 
 # ============================================================
 # OUTPUTS
 # ============================================================
 st.markdown("---")
-st.header("POC Summary")
+st.header("Clinical summary")
 
 if mcv_cat is None:
     st.info("Select an MCV category above to generate the POC summary and differential.")
@@ -879,7 +929,23 @@ else:
         )
 
     # -------------------------
-    # OTHER EXISTING RULES (UNCHANGED)
+    # SMEAR FINDINGS
+    # -------------------------
+    if smear_abnormal == "Yes":
+        add_item(
+            dx,
+            "Abnormal peripheral smear requiring morphology-directed evaluation",
+            "An abnormal smear has already been documented, so the next step is to act on the specific morphology rather than repeat a generic smear recommendation.",
+            [
+                "Action: identify the reported morphology (e.g., schistocytes, blasts, spherocytes, dysplasia)",
+                "Action: correlate the morphology with CBC, reticulocyte response, and hemolysis markers",
+                "Action: consider urgent hematology input for blasts, schistocytes, or other high-risk findings",
+            ],
+            priority=6,
+        )
+
+    # -------------------------
+    # OTHER EXISTING RULES
     # -------------------------
     if ldh == "High" and haptoglobin == "Low" and indirect_bili == "High":
         add_item(
@@ -978,7 +1044,7 @@ else:
     st.caption("Completeness reflects whether key lab groups were entered")
 
     # ---- Next steps (POC) ----
-    st.markdown("#### Next steps (POC)")
+    st.markdown("#### Recommended next steps")
     base_next = next_most_informative(mcv_cat, marrow_response, known)
 
     high_yield_essentials = [
@@ -1082,4 +1148,4 @@ else:
             st.caption("No specific referral triggers detected from entered data (limited by missing inputs).")
 
 st.markdown("---")
-st.caption("Created by Manal Ahmidouch – GMA Clinic • Med-Ed Track • For Educational Use Only")
+st.caption("AnemiaDx • Created by Manal Ahmidouch • GMA Clinic / Medical Education • Educational use only")
