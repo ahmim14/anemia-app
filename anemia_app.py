@@ -1,4 +1,5 @@
 import re
+import pandas as pd
 import streamlit as st
 
 st.set_page_config(
@@ -12,36 +13,48 @@ st.markdown(
     """
     <style>
         .block-container {max-width: 980px; padding-top: 2rem; padding-bottom: 3rem;}
-        [data-testid="stSidebar"] {background: #fbfbfc;}
+        [data-testid="stSidebar"] {background: #f8fafc;}
         .anemiadx-hero {
-            padding: 1.35rem 1.5rem;
-            border: 1px solid rgba(49, 51, 63, 0.14);
-            border-radius: 20px;
-            background: linear-gradient(135deg, rgba(183, 28, 28, 0.08), rgba(255,255,255,0.98));
-            margin-bottom: 1rem;
+            padding: 0.2rem 0 1rem 0;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+            margin-bottom: 0.8rem;
         }
-        .anemiadx-title {font-size: 2.25rem; font-weight: 750; letter-spacing: -0.03em; margin: 0;}
-        .anemiadx-subtitle {font-size: 1.02rem; opacity: 0.78; margin: 0.35rem 0 0 0;}
+        .anemiadx-eyebrow {
+            font-size: 0.72rem; font-weight: 800; letter-spacing: 0.12em;
+            color: #b91c1c; margin: 0 0 0.25rem 0;
+        }
+        .anemiadx-title {font-size: 2.35rem; font-weight: 800; letter-spacing: -0.04em; margin: 0; line-height: 1.05;}
+        .anemiadx-subtitle {font-size: 1rem; color: #64748b; margin: 0.45rem 0 0 0; max-width: 48rem;}
+        .anemiadx-version {font-size: 0.72rem; color: #94a3b8; margin-top: 0.45rem;}
         .next-card {
-            padding: 0.9rem 1rem;
+            padding: 1rem 1.05rem;
             border-radius: 14px;
-            border: 1px solid rgba(183, 28, 28, 0.24);
-            background: rgba(183, 28, 28, 0.06);
-            margin: 0.4rem 0 1rem 0;
+            border: 1px solid #991b1b;
+            background: linear-gradient(135deg, #7f1d1d, #450a0a);
+            box-shadow: 0 8px 24px rgba(127, 29, 29, 0.18);
+            margin: 0.45rem 0 1rem 0;
         }
-        .next-card-label {font-size: 0.74rem; font-weight: 750; letter-spacing: 0.08em; opacity: 0.68;}
-        .next-card-value {font-size: 1rem; font-weight: 650; margin-top: 0.22rem;}
+        .next-card-label {font-size: 0.7rem; font-weight: 800; letter-spacing: 0.11em; color: #fecaca;}
+        .next-card-value {font-size: 1.02rem; font-weight: 750; color: #ffffff; margin-top: 0.3rem; line-height: 1.35;}
         div[data-testid="stExpander"] {border-radius: 14px;}
         div[data-testid="stMetric"] {border: 1px solid rgba(49,51,63,.10); padding: .75rem; border-radius: 12px;}
     </style>
     <div class="anemiadx-hero">
-        <p class="anemiadx-title">🩸 AnemiaDx</p>
-        <p class="anemiadx-subtitle">A stepwise clinical reasoning tool for anemia evaluation and resident education.</p>
+        <p class="anemiadx-eyebrow">CLINICAL REASONING TOOL</p>
+        <p class="anemiadx-title">AnemiaDx</p>
+        <p class="anemiadx-subtitle">A stepwise approach to anemia evaluation, differential diagnosis, and resident education.</p>
+        <p class="anemiadx-version">Enhanced build · July 2026</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 st.caption("Educational decision support only — not a substitute for clinical judgment.")
+
+reset_col, _ = st.columns([1, 4])
+with reset_col:
+    if st.button("↻ Start new evaluation", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
 
 # ---------------- Mode toggles ----------------
 colM1, colM2 = st.columns([2, 1])
@@ -107,7 +120,7 @@ def maturation_factor(hct):
     return 2.5
 
 
-def add_item(lst, title, rationale="", workup=None, rule="", what_changes="", priority=50):
+def add_item(lst, title, rationale="", workup=None, rule="", what_changes="", priority=50, evidence=None, confidence="Possible"):
     lst.append(
         {
             "title": title,
@@ -116,6 +129,8 @@ def add_item(lst, title, rationale="", workup=None, rule="", what_changes="", pr
             "rule": rule,
             "what_changes": what_changes,
             "priority": priority,
+            "evidence": evidence or [],
+            "confidence": confidence,
         }
     )
 
@@ -392,6 +407,119 @@ def pill(text, color_hex):
     """
 
 
+def confidence_style(level):
+    return {
+        "Strongly supported": ("#166534", "#dcfce7"),
+        "Supported": ("#1d4ed8", "#dbeafe"),
+        "Possible": ("#92400e", "#fef3c7"),
+        "Insufficient data": ("#475569", "#e2e8f0"),
+    }.get(level, ("#475569", "#e2e8f0"))
+
+
+def evidence_chip(text):
+    safe = str(text).replace("<", "&lt;").replace(">", "&gt;")
+    return f'<span style="display:inline-block;padding:3px 8px;margin:2px 4px 2px 0;border-radius:999px;background:#f1f5f9;border:1px solid #cbd5e1;font-size:.78rem;">{safe}</span>'
+
+
+def iron_pattern(ferritin, tsat):
+    if ferritin is None and tsat is None:
+        return None, "Insufficient data"
+    if ferritin is not None and ferritin < 30:
+        return "Absolute iron deficiency pattern", "Strongly supported"
+    if ferritin is not None and ferritin >= 100 and tsat is not None and tsat < 20:
+        return "Functional iron deficiency / inflammation pattern", "Supported"
+    if ferritin is not None and 30 <= ferritin < 100 and tsat is not None and tsat < 20:
+        return "Possible iron deficiency; ferritin may be equivocal", "Possible"
+    if ferritin is not None and ferritin >= 100 and tsat is not None and tsat >= 20:
+        return "Iron deficiency is less supported by current studies", "Possible"
+    if tsat is not None and tsat < 20:
+        return "Low iron availability; ferritin is needed to distinguish absolute from functional deficiency", "Possible"
+    return "No clear iron-deficiency pattern from entered values", "Possible"
+
+
+def mixed_pattern_flags(mcv_cat, rdw, ferritin, b12, folate, recent_transfusion):
+    flags = []
+    if mcv_cat == "Normocytic (80–100)" and ferritin is not None and ferritin < 30:
+        flags.append("Normal MCV does not exclude early or mixed iron deficiency.")
+    if mcv_cat == "Microcytic (<80)" and ((b12 is not None and b12 < 200) or (folate is not None and folate < 4)):
+        flags.append("A vitamin deficiency is present despite microcytosis, suggesting a mixed process.")
+    if mcv_cat == "Normocytic (80–100)" and rdw == "High":
+        flags.append("High RDW with a normal MCV can reflect competing microcytic and macrocytic processes.")
+    if recent_transfusion:
+        flags.append("Recent transfusion can obscure the native MCV and RDW pattern.")
+    return flags
+
+
+def lab_rows(hb, ferritin, tsat, b12, folate, tsh, egfr, ldh, haptoglobin, indirect_bili, rpi):
+    rows = []
+    def add(test, value, interpretation, level):
+        if value is not None:
+            rows.append({"Test": test, "Result": value, "Interpretation": interpretation, "Flag": level})
+    if hb is not None:
+        add("Hemoglobin", f"{hb:.1f} g/dL", "Low if below sex-specific threshold", "Abnormal")
+    if ferritin is not None:
+        add("Ferritin", f"{ferritin:.0f} ng/mL", "Low" if ferritin < 30 else ("Borderline" if ferritin < 100 else "Not low"), "Abnormal" if ferritin < 30 else ("Borderline" if ferritin < 100 else "Normal"))
+    if tsat is not None:
+        add("TSAT", f"{tsat:.0f}%", "Low iron availability" if tsat < 20 else "Not low", "Abnormal" if tsat < 20 else "Normal")
+    if b12 is not None:
+        add("Vitamin B12", f"{b12:.0f} pg/mL", "Low" if b12 < 200 else ("Borderline" if b12 < 300 else "Not low"), "Abnormal" if b12 < 200 else ("Borderline" if b12 < 300 else "Normal"))
+    if folate is not None:
+        add("Folate", f"{folate:.1f} ng/mL", "Low" if folate < 4 else "Not low", "Abnormal" if folate < 4 else "Normal")
+    if tsh is not None:
+        add("TSH", f"{tsh:.2f} μIU/mL", "Elevated" if tsh > 5 else "Not elevated", "Abnormal" if tsh > 5 else "Normal")
+    if egfr is not None:
+        add("eGFR", f"{egfr:.0f} mL/min/1.73m²", "Reduced" if egfr < 60 else "Preserved", "Abnormal" if egfr < 60 else "Normal")
+    if ldh not in (None, "Unknown"):
+        add("LDH", ldh, "Hemolysis-supportive" if ldh == "High" else "Not elevated", "Abnormal" if ldh == "High" else "Normal")
+    if haptoglobin not in (None, "Unknown"):
+        add("Haptoglobin", haptoglobin, "Hemolysis-supportive" if haptoglobin == "Low" else "Not low", "Abnormal" if haptoglobin == "Low" else "Normal")
+    if indirect_bili not in (None, "Unknown"):
+        add("Indirect bilirubin", indirect_bili, "Hemolysis-supportive" if indirect_bili == "High" else "Not elevated", "Abnormal" if indirect_bili == "High" else "Normal")
+    if rpi is not None:
+        add("RPI", f"{rpi:.2f}", "Appropriate marrow response" if rpi >= 2 else "Inadequate marrow response", "Normal" if rpi >= 2 else "Abnormal")
+    return rows
+
+
+def clinical_impression(mcv_cat, marrow_response, dx_unique, mixed_flags):
+    morphology = {
+        "Microcytic (<80)": "Microcytic",
+        "Normocytic (80–100)": "Normocytic",
+        "Macrocytic (>100)": "Macrocytic",
+    }.get(mcv_cat, "Anemia")
+    marrow = ""
+    if "Inadequate" in marrow_response:
+        marrow = " hypoproliferative"
+    elif "Appropriate" in marrow_response:
+        marrow = " with an appropriate marrow response"
+    if dx_unique:
+        top_titles = [x["title"] for x in dx_unique[:2]]
+        lead = top_titles[0]
+        if len(top_titles) > 1:
+            lead += f", with {top_titles[1].lower()} also contributing"
+        sentence = f"{morphology}{marrow} anemia; {lead.lower()} is the leading interpretation."
+    else:
+        sentence = f"{morphology}{marrow} anemia with insufficient data to identify a leading etiology."
+    if mixed_flags:
+        sentence += " A mixed process may be present."
+    return sentence
+
+
+def generate_plan(impression, dx_unique, tests, actions):
+    etiologies = ", ".join(item["title"] for item in dx_unique[:3]) if dx_unique else "etiology remains incompletely characterized"
+    plan_parts = []
+    if tests:
+        plan_parts.append("Obtain " + ", ".join(tests) + ".")
+    if actions:
+        plan_parts.append("Actions: " + "; ".join(actions) + ".")
+    if not plan_parts:
+        plan_parts.append("Correlate with the clinical context and trend the CBC as appropriate.")
+    return (
+        f"Assessment: {impression}\n\n"
+        f"Leading considerations: {etiologies}.\n\n"
+        f"Plan: {' '.join(plan_parts)}"
+    )
+
+
 # =========================
 # Teaching: Next-most-informative + breadcrumb
 # =========================
@@ -449,85 +577,56 @@ def breadcrumb_path(mcv_cat, marrow_response, known, inputs):
 # Decision tree (Graphviz)
 # =========================
 def decision_tree_dot(mcv_cat, marrow_response, known):
-    def node(label, active=False, dim=False):
-        style = 'shape="box", style="rounded'
-        style += ',bold"' if active else '"'
-        color = ' color="gray" fontcolor="gray"' if dim else ""
-        safe_label = str(label).replace('"', "'").replace("\n", "\\n")
-        return f'[{style}{color} label="{safe_label}"];'
-
-    def status(label, ok):
-        return f"{label}: {'✅' if ok else '❓'}"
-
-    micro = mcv_cat == "Microcytic (<80)"
-    normo = mcv_cat == "Normocytic (80–100)"
-    macro = mcv_cat == "Macrocytic (>100)"
-    mcv_chosen = mcv_cat is not None
-
-    dim_micro = mcv_chosen and not micro
-    dim_normo = mcv_chosen and not normo
-    dim_macro = mcv_chosen and not macro
-
-    mcv_label_value = mcv_cat if mcv_cat is not None else "Select..."
-    mcv_node_label = f"MCV: {mcv_label_value}"
+    def node(label, active=False, complete=False):
+        attrs = ['shape="box"', 'style="rounded,filled"']
+        if active:
+            attrs += ['fillcolor="#fee2e2"', 'color="#b91c1c"', 'penwidth="2.2"']
+        elif complete:
+            attrs += ['fillcolor="#ecfdf5"', 'color="#15803d"']
+        else:
+            attrs += ['fillcolor="#f8fafc"', 'color="#cbd5e1"', 'fontcolor="#64748b"']
+        safe = str(label).replace('"', "'").replace("\n", "\\n")
+        return f'[{", ".join(attrs)}, label="{safe}"];'
 
     dot = [
         "digraph G {",
         "rankdir=TB;",
-        "splines=false;",
+        "splines=ortho;",
         "nodesep=0.25;",
-        "ranksep=0.3;",
+        "ranksep=0.35;",
         'node [fontname="Helvetica"];',
+        'edge [color="#94a3b8"];',
     ]
-
-    dot.append(f'Start {node("Start", active=True)}')
-    dot.append(f"MCV {node(mcv_node_label, active=mcv_chosen)}")
+    dot.append(f'Start {node("Start", complete=True)}')
+    mcv_label = mcv_cat if mcv_cat else "Select MCV"
+    dot.append(f'MCV {node(mcv_label, active=mcv_cat is None, complete=mcv_cat is not None)}')
     dot.append("Start -> MCV;")
 
-    dot.append(f'Micro {node("Microcytic", active=micro, dim=dim_micro)}')
-    dot.append(f'Normo {node("Normocytic", active=normo, dim=dim_normo)}')
-    dot.append(f'Macro {node("Macrocytic", active=macro, dim=dim_macro)}')
-    dot.append("MCV -> Micro; MCV -> Normo; MCV -> Macro;")
-
-    iron_label = "\n".join(
-        [
-            status("Iron studies", known["iron_any"]),
-            status("Ferritin", known["ferritin"]),
-            status("TSAT", known["tsat"]),
-        ]
-    )
-    dot.append(f"Iron {node(iron_label, active=(micro and known['iron_any']), dim=dim_micro)}")
-    dot.append("Micro -> Iron;")
-
-    retic_label = "\n".join([status("Retic/RPI", known["retic_any"]), f"Marrow: {marrow_response}"])
-    dot.append(f"Retic {node(retic_label, active=(normo and known['retic_any']), dim=dim_normo)}")
-    dot.append("Normo -> Retic;")
-
-    hemo_label = "\n".join(
-        [
-            status("Hemolysis markers", known["hemo_any"]),
-            status("LDH", known["ldh"]),
-            status("Haptoglobin", known["haptoglobin"]),
-            status("Indirect bili", known["indirect_bili"]),
-        ]
-    )
-    dot.append(f"Hemo {node(hemo_label, active=(normo and known['hemo_any']), dim=dim_normo)}")
-    dot.append("Retic -> Hemo;")
-
-    vits_label = "\n".join(
-        [
-            status("B12/Folate", known["vits_any"]),
-            status("B12", known["b12"]),
-            status("Folate", known["folate"]),
-        ]
-    )
-    dot.append(f"Vits {node(vits_label, active=(macro and known['vits_any']), dim=dim_macro)}")
-    dot.append("Macro -> Vits;")
-
-    other_label = "\n".join([status("TSH", known["tsh"]), "Consider LFTs/smear/meds"])
-    dot.append(f"Other {node(other_label, active=macro, dim=dim_macro)}")
-    dot.append("Vits -> Other;")
-
+    if mcv_cat == "Microcytic (<80)":
+        dot.append(f'Path {node("Microcytic pathway", complete=True)}')
+        label = "Iron studies complete" if known["iron_any"] else "Next: ferritin + TSAT"
+        dot.append(f'Current {node(label, active=not known["iron_any"], complete=known["iron_any"])}')
+        dot.append("MCV -> Path -> Current;")
+    elif mcv_cat == "Normocytic (80–100)":
+        dot.append(f'Path {node("Normocytic pathway", complete=True)}')
+        if not known["retic_any"]:
+            label, done = "Next: reticulocyte count / RPI", False
+        elif marrow_response in ("Appropriate (RPI ≥2)", "Appropriate/High retic") and not known["hemo_any"]:
+            label, done = "Next: hemolysis markers", False
+        else:
+            label, done = "Core pathway complete", True
+        dot.append(f'Current {node(label, active=not done, complete=done)}')
+        dot.append("MCV -> Path -> Current;")
+    elif mcv_cat == "Macrocytic (>100)":
+        dot.append(f'Path {node("Macrocytic pathway", complete=True)}')
+        if not (known["b12"] and known["folate"]):
+            label, done = "Next: B12 + folate", False
+        elif not known["tsh"]:
+            label, done = "Next: TSH", False
+        else:
+            label, done = "Core pathway complete", True
+        dot.append(f'Current {node(label, active=not done, complete=done)}')
+        dot.append("MCV -> Path -> Current;")
     dot.append("}")
     return "\n".join(dot)
 
@@ -795,6 +894,8 @@ else:
                     "CRP/ESR (if inflammatory disease suspected)",
                 ],
                 priority=20,
+                evidence=[f"Ferritin {fmt(ferritin,0)}", f"TSAT {fmt(transferrin_sat,0,'%')}", "Microcytosis"],
+                confidence="Supported",
             )
         else:
             add_item(
@@ -807,6 +908,8 @@ else:
                     "Hemoglobin electrophoresis",
                 ],
                 priority=30,
+                evidence=["Microcytosis", "Iron deficiency not clearly established"],
+                confidence="Possible",
             )
 
     if mcv_cat == "Normocytic (80–100)":
@@ -901,6 +1004,8 @@ else:
                 "Action: consider celiac testing if indicated",
             ],
             priority=9,
+            evidence=[f"Ferritin {fmt(ferritin,0)} ng/mL", f"MCV: {mcv_cat.split()[0]}"] + ([f"TSAT {fmt(transferrin_sat,0,'%')}"] if transferrin_sat is not None else []),
+            confidence="Strongly supported",
         )
 
     if b12 is not None and b12 < 200:
@@ -914,6 +1019,8 @@ else:
                 "Intrinsic factor antibody (if pernicious anemia suspected)",
             ],
             priority=12,
+            evidence=[f"B12 {fmt(b12,0)} pg/mL"],
+            confidence="Strongly supported",
         )
 
     if folate is not None and folate < 4:
@@ -926,6 +1033,8 @@ else:
                 "Action: review folate-antagonist meds/exposures",
             ],
             priority=15,
+            evidence=[f"Folate {fmt(folate,1)} ng/mL"],
+            confidence="Strongly supported",
         )
 
     # -------------------------
@@ -959,6 +1068,8 @@ else:
                 "Action: consider G6PD if indicated",
             ],
             priority=8,
+            evidence=["High LDH", "Low haptoglobin", "High indirect bilirubin"],
+            confidence="Strongly supported",
         )
 
     if tsh is not None and tsh > 5:
@@ -1037,6 +1148,46 @@ else:
     dx_sorted = sorted(dx, key=lambda x: x.get("priority", 50))
     dx_unique = dedupe_by_title(dx_sorted)
 
+    iron_interp, iron_confidence = iron_pattern(ferritin, transferrin_sat)
+    mixed_flags = mixed_pattern_flags(
+        mcv_cat, rdw, ferritin, b12, folate, "Recent transfusion (last 3 months)" in exposures
+    )
+    impression = clinical_impression(mcv_cat, marrow_response, dx_unique, mixed_flags)
+
+    st.markdown("#### Clinical impression")
+    st.info(impression)
+
+    if mixed_flags:
+        st.markdown("#### Mixed-pattern alert")
+        for flag in mixed_flags:
+            st.warning(flag)
+
+    if iron_interp:
+        fg, bg = confidence_style(iron_confidence)
+        st.markdown(
+            f'<div style="padding:.8rem 1rem;border-radius:12px;background:{bg};color:{fg};border:1px solid {fg}22;">'
+            f'<strong>Iron-study interpretation:</strong> {iron_interp}</div>',
+            unsafe_allow_html=True,
+        )
+
+    rows = lab_rows(hb, ferritin, transferrin_sat, b12, folate, tsh, egfr, ldh, haptoglobin, indirect_bili, rpi)
+    if rows:
+        st.markdown("#### Entered data at a glance")
+        lab_df = pd.DataFrame(rows)
+        def highlight_flag(row):
+            palette = {
+                "Abnormal": "background-color: #fee2e2; color: #991b1b",
+                "Borderline": "background-color: #fef3c7; color: #92400e",
+                "Normal": "background-color: #dcfce7; color: #166534",
+            }
+            style = palette.get(row["Flag"], "background-color: #f1f5f9; color: #475569")
+            return [style] * len(row)
+        st.dataframe(
+            lab_df.style.apply(highlight_flag, axis=1),
+            use_container_width=True,
+            hide_index=True,
+        )
+
     # ---- Data completeness ----
     st.markdown("#### Data completeness")
     level_txt, level_color = completeness_badge(known)
@@ -1094,12 +1245,23 @@ else:
     if not dx_unique:
         st.info("Enter more data to generate a ranked differential.")
     else:
-        top = dx_unique[:3]
-        if len(top) == 1:
-            st.markdown(f"**{top[0]['title']}**")
-        else:
-            for i, item in enumerate(top, 1):
-                st.markdown(f"**{i}. {item['title']}**")
+        for i, item in enumerate(dx_unique[:3], 1):
+            fg, bg = confidence_style(item.get("confidence", "Possible"))
+            st.markdown(
+                f'<div style="padding:.85rem 1rem;margin:.45rem 0;border-radius:14px;border:1px solid #e2e8f0;">'
+                f'<div style="display:flex;justify-content:space-between;gap:1rem;align-items:center;">'
+                f'<strong>{i}. {item["title"]}</strong>'
+                f'<span style="padding:3px 8px;border-radius:999px;background:{bg};color:{fg};font-size:.76rem;font-weight:700;">{item.get("confidence", "Possible")}</span>'
+                f'</div>'
+                f'<div style="margin-top:.45rem;">{"".join(evidence_chip(x) for x in item.get("evidence", []))}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+    st.markdown("#### Copyable assessment & plan")
+    assessment_plan = generate_plan(impression, dx_unique, tests, actions)
+    st.code(assessment_plan, language=None)
+    st.caption("Use the copy icon in the code box, then edit for the individual patient and local practice.")
 
     # ---- Details ----
     st.markdown("---")
@@ -1111,6 +1273,14 @@ else:
             title_line = f"{i}. {item['title']}"
             expanded_default = show_all_details if teaching_mode else False
             with st.expander(title_line, expanded=expanded_default):
+                fg, bg = confidence_style(item.get("confidence", "Possible"))
+                st.markdown(
+                    f'<span style="padding:3px 8px;border-radius:999px;background:{bg};color:{fg};font-size:.8rem;font-weight:700;">{item.get("confidence", "Possible")}</span>',
+                    unsafe_allow_html=True,
+                )
+                if item.get("evidence"):
+                    st.markdown("**Evidence used:**")
+                    st.markdown(" ".join(evidence_chip(x) for x in item.get("evidence", [])), unsafe_allow_html=True)
                 if item.get("rationale"):
                     st.markdown(f"**Why:** {item['rationale']}")
                 if teaching_mode:
