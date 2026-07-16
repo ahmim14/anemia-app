@@ -2247,60 +2247,55 @@ else:
                 )
 
         # --------------------------------------------------------
-        # MOST LIKELY ETIOLOGIES
-        # --------------------------------------------------------
-        st.markdown("#### Most likely etiologies")
+       # --------------------------------------------------------
+# MOST LIKELY ETIOLOGIES
+# --------------------------------------------------------
+st.markdown("#### Most likely etiologies")
 
-        if not dx:
-            st.info(
-                "Enter additional data to generate a ranked differential."
-            )
+if not dx:
+    st.info(
+        "Enter additional data to generate a ranked differential."
+    )
+
+else:
+    for index, item in enumerate(dx[:3], start=1):
+        if item["confidence"] == "Strongly supported":
+            confidence_class = "confidence-strong"
+
+        elif item["confidence"] == "Supported":
+            confidence_class = "confidence-supported"
 
         else:
-            for index, item in enumerate(dx[:3], start=1):
-                if item["confidence"] == "Strongly supported":
-                    confidence_class = "confidence-strong"
+            confidence_class = "confidence-possible"
 
-                elif item["confidence"] == "Supported":
-                    confidence_class = "confidence-supported"
+        evidence_html = "".join(
+            f'<span class="evidence-chip">{safe_text(evidence)}</span>'
+            for evidence in item["evidence"]
+        )
 
-                else:
-                    confidence_class = "confidence-possible"
+        card_html = (
+            f'<div class="etiology-card">'
+            f'<div style="display:flex;'
+            f'justify-content:space-between;'
+            f'gap:1rem;'
+            f'align-items:flex-start;">'
+            f'<div class="etiology-title">'
+            f'{index}. {safe_text(item["title"])}'
+            f'</div>'
+            f'<span class="{confidence_class}">'
+            f'{safe_text(item["confidence"])}'
+            f'</span>'
+            f'</div>'
+            f'<div style="margin-top:0.55rem;">'
+            f'{evidence_html}'
+            f'</div>'
+            f'</div>'
+        )
 
-                evidence_html = "".join(
-                    (
-                        '<span class="evidence-chip">'
-                        f"{safe_text(evidence)}"
-                        "</span>"
-                    )
-                    for evidence in item["evidence"]
-                )
-
-                st.markdown(
-                    f"""
-                    <div class="etiology-card">
-                        <div style="
-                            display:flex;
-                            justify-content:space-between;
-                            gap:1rem;
-                            align-items:flex-start;
-                        ">
-                            <div class="etiology-title">
-                                {index}. {safe_text(item["title"])}
-                            </div>
-
-                            <span class="{confidence_class}">
-                                {safe_text(item["confidence"])}
-                            </span>
-                        </div>
-
-                        <div style="margin-top:0.55rem;">
-                            {evidence_html}
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+        st.markdown(
+            card_html,
+            unsafe_allow_html=True,
+        )
 
         # --------------------------------------------------------
         # DIFFERENTIAL DETAILS
