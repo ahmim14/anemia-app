@@ -15,7 +15,7 @@ st.set_page_config(
 
 
 # ============================================================
-# GLOBAL STYLING
+# STYLING
 # ============================================================
 st.markdown(
     """
@@ -43,7 +43,7 @@ st.markdown(
             margin: 0.2rem 0 0.9rem 0;
         }
 
-        /* Header */
+        /* App header */
         .app-header {
             position: relative;
             overflow: hidden;
@@ -68,17 +68,6 @@ st.markdown(
                     rgba(30, 41, 59, 0.96)
                 );
             box-shadow: 0 18px 45px rgba(15, 23, 42, 0.24);
-        }
-
-        .app-header::after {
-            content: "";
-            position: absolute;
-            width: 220px;
-            height: 220px;
-            right: -90px;
-            top: -120px;
-            border-radius: 50%;
-            border: 28px solid rgba(255, 255, 255, 0.035);
         }
 
         .app-title {
@@ -129,7 +118,7 @@ st.markdown(
             text-transform: uppercase;
         }
 
-        /* Next most informative card */
+        /* Sidebar recommendation */
         .next-card {
             padding: 1rem 1.05rem;
             border-radius: 16px;
@@ -155,19 +144,19 @@ st.markdown(
             margin-top: 0.35rem;
         }
 
-        /* Summary cards */
+        /* Clinical impression */
         .summary-card {
-            padding: 1rem 1.1rem;
+            padding: 1.15rem 1.25rem;
             border: 1px solid #334155;
-            border-radius: 16px;
+            border-radius: 17px;
             background: rgba(15, 23, 42, 0.38);
-            margin: 0.65rem 0;
+            margin: 0.7rem 0;
         }
 
         .summary-label {
             color: #94a3b8;
             font-size: 0.75rem;
-            font-weight: 800;
+            font-weight: 850;
             letter-spacing: 0.07em;
             text-transform: uppercase;
             margin-bottom: 0.4rem;
@@ -176,14 +165,37 @@ st.markdown(
         .summary-value {
             color: #f8fafc;
             font-size: 1.08rem;
-            font-weight: 700;
+            font-weight: 750;
             line-height: 1.55;
+        }
+
+        /* Iron interpretation */
+        .iron-pattern {
+            padding: 0.95rem 1.05rem;
+            margin: 0.65rem 0;
+            border-radius: 14px;
+            border-left: 5px solid #b91c1c;
+            background: rgba(185, 28, 28, 0.10);
+        }
+
+        .iron-pattern-title {
+            font-weight: 850;
+            margin-bottom: 0.25rem;
+        }
+
+        /* Mixed anemia */
+        .mixed-card {
+            padding: 0.95rem 1.05rem;
+            border-radius: 14px;
+            border: 1px solid #d97706;
+            background: rgba(245, 158, 11, 0.11);
+            margin: 0.65rem 0;
         }
 
         /* Etiology cards */
         .etiology-card {
             padding: 1rem 1.05rem;
-            margin: 0.7rem 0;
+            margin: 0.75rem 0 0.35rem 0;
             border-radius: 16px;
             border: 1px solid #475569;
             background: #111827;
@@ -192,7 +204,7 @@ st.markdown(
         .etiology-title {
             color: #f8fafc !important;
             font-size: 1.04rem;
-            font-weight: 800;
+            font-weight: 850;
             line-height: 1.4;
         }
 
@@ -205,7 +217,7 @@ st.markdown(
             border: 1px solid #94a3b8;
             color: #0f172a !important;
             font-size: 0.78rem;
-            font-weight: 700;
+            font-weight: 750;
         }
 
         .confidence-strong {
@@ -239,29 +251,6 @@ st.markdown(
             font-size: 0.78rem;
             font-weight: 850;
             white-space: nowrap;
-        }
-
-        /* Iron pattern */
-        .iron-pattern {
-            padding: 0.9rem 1rem;
-            margin: 0.55rem 0;
-            border-radius: 14px;
-            border-left: 5px solid #b91c1c;
-            background: rgba(185, 28, 28, 0.10);
-        }
-
-        .iron-pattern-title {
-            font-weight: 800;
-            margin-bottom: 0.25rem;
-        }
-
-        /* Mixed pattern */
-        .mixed-card {
-            padding: 0.9rem 1rem;
-            border-radius: 14px;
-            border: 1px solid #d97706;
-            background: rgba(245, 158, 11, 0.11);
-            margin: 0.65rem 0;
         }
 
         div[data-testid="stExpander"] {
@@ -340,7 +329,7 @@ st.caption(
     "Educational decision support only — not a substitute for clinical judgment."
 )
 
-reset_col, spacer_col = st.columns([1.4, 4])
+reset_col, _ = st.columns([1.5, 4])
 
 with reset_col:
     st.button(
@@ -430,11 +419,9 @@ def dedupe_dx(items):
     output = []
 
     for item in items:
-        title = item["title"]
-
-        if title not in seen:
+        if item["title"] not in seen:
             output.append(item)
-            seen.add(title)
+            seen.add(item["title"])
 
     return output
 
@@ -456,7 +443,7 @@ def maturation_factor(hct):
 
 
 # ============================================================
-# INPUT COLOR HIGHLIGHTING
+# INPUT HIGHLIGHTING
 # ============================================================
 def field_style(label, status):
     palette = {
@@ -551,11 +538,7 @@ def inject_input_highlights(
         )
 
     if tsh is not None:
-        if tsh > 5 or tsh < 0.4:
-            status = "abnormal"
-        else:
-            status = "normal"
-
+        status = "abnormal" if tsh > 5 or tsh < 0.4 else "normal"
         rules.append(field_style("TSH (μIU/mL)", status))
 
     if egfr is not None:
@@ -566,7 +549,12 @@ def inject_input_highlights(
         else:
             status = "normal"
 
-        rules.append(field_style("eGFR (mL/min/1.73m²)", status))
+        rules.append(
+            field_style(
+                "eGFR (mL/min/1.73m²)",
+                status,
+            )
+        )
 
     if rules:
         st.markdown(
@@ -576,7 +564,7 @@ def inject_input_highlights(
 
 
 # ============================================================
-# KNOWN DATA
+# DATA COMPLETENESS
 # ============================================================
 def build_known(inputs):
     known = {
@@ -595,16 +583,8 @@ def build_known(inputs):
         "smear": known_choice(inputs["smear_abnormal"]),
     }
 
-    known["iron_any"] = known["ferritin"] or known["tsat"]
     known["iron_complete"] = known["ferritin"] and known["tsat"]
-    known["vits_any"] = known["b12"] or known["folate"]
     known["vits_complete"] = known["b12"] and known["folate"]
-
-    known["hemo_any"] = (
-        known["ldh"]
-        or known["haptoglobin"]
-        or known["indirect_bili"]
-    )
 
     known["hemo_complete"] = (
         known["ldh"]
@@ -622,7 +602,7 @@ def build_known(inputs):
 
 
 # ============================================================
-# IRON PATTERN
+# IRON INTERPRETATION
 # ============================================================
 def interpret_iron_pattern(ferritin, tsat):
     if ferritin is None and tsat is None:
@@ -778,8 +758,6 @@ def progressive_tree_dot(
                 nodes.append(("Current", "Complete iron studies"))
             elif iron_pattern:
                 nodes.append(("Current", iron_pattern["title"]))
-            else:
-                nodes.append(("Current", "Assess iron pattern"))
 
         elif mcv_cat == "Normocytic (80–100)":
             nodes.append(("Path", "Normocytic pathway"))
@@ -853,7 +831,7 @@ def progressive_tree_dot(
 
 
 # ============================================================
-# SUGGESTION FILTERING
+# FILTER ALREADY COMPLETED TESTS
 # ============================================================
 def filter_suggestions(lines, known):
     filtered = []
@@ -926,7 +904,7 @@ with toggle_col_1:
 with toggle_col_2:
     show_all_details = (
         st.toggle(
-            "Show all details",
+            "Expand diagnosis details",
             value=False,
             key="show_all_details",
         )
@@ -936,7 +914,7 @@ with toggle_col_2:
 
 
 # ============================================================
-# INPUTS: SYMPTOMS
+# SYMPTOMS
 # ============================================================
 st.header("Symptoms & severity")
 
@@ -986,7 +964,7 @@ with symptom_col_2:
 
 
 # ============================================================
-# INPUTS: CBC
+# CBC
 # ============================================================
 st.header("CBC basics")
 
@@ -1192,10 +1170,11 @@ with st.expander(
 marrow_response = "Unknown"
 
 if rpi is not None:
-    if rpi >= 2:
-        marrow_response = "Appropriate response"
-    else:
-        marrow_response = "Inadequate response"
+    marrow_response = (
+        "Appropriate response"
+        if rpi >= 2
+        else "Inadequate response"
+    )
 
 elif retic_qual == "High":
     marrow_response = "Appropriate/high reticulocyte response"
@@ -1361,9 +1340,6 @@ with st.expander(
     )
 
 
-# ============================================================
-# APPLY INPUT HIGHLIGHTING
-# ============================================================
 inject_input_highlights(
     hb=hb,
     sex=sex,
@@ -1376,9 +1352,6 @@ inject_input_highlights(
 )
 
 
-# ============================================================
-# DATA STATE
-# ============================================================
 inputs = {
     "ferritin": ferritin,
     "tsat": tsat,
@@ -1426,16 +1399,16 @@ if teaching_mode:
         )
 
         st.markdown(
-            f"""
-            <div class="next-card">
-                <div class="next-card-label">
-                    Next most informative
-                </div>
-                <div class="next-card-value">
-                    {next_text}
-                </div>
-            </div>
-            """,
+            (
+                '<div class="next-card">'
+                '<div class="next-card-label">'
+                'Next most informative'
+                "</div>"
+                '<div class="next-card-value">'
+                f"{next_text}"
+                "</div>"
+                "</div>"
+            ),
             unsafe_allow_html=True,
         )
 
@@ -1470,11 +1443,10 @@ else:
     no_anemia = False
 
     if hb is not None and sex is not None:
-        if sex == "Female" and hb >= 12:
-            no_anemia = True
-
-        if sex == "Male" and hb >= 13:
-            no_anemia = True
+        no_anemia = (
+            (sex == "Female" and hb >= 12)
+            or (sex == "Male" and hb >= 13)
+        )
 
     if no_anemia:
         st.success(
@@ -1490,9 +1462,7 @@ else:
     else:
         dx = []
 
-        # --------------------------------------------------------
-        # MCV-SPECIFIC DIFFERENTIAL
-        # --------------------------------------------------------
+        # Microcytic
         if mcv_cat == "Microcytic (<80)":
             if (
                 ferritin is not None
@@ -1552,6 +1522,7 @@ else:
                     priority=35,
                 )
 
+        # Normocytic
         elif mcv_cat == "Normocytic (80–100)":
             if marrow_response in (
                 "Appropriate response",
@@ -1678,6 +1649,7 @@ else:
                         priority=22,
                     )
 
+        # Macrocytic
         elif mcv_cat == "Macrocytic (>100)":
             if (
                 (b12 is None or b12 >= 200)
@@ -1714,9 +1686,7 @@ else:
                     priority=30,
                 )
 
-        # --------------------------------------------------------
-        # GLOBAL FINDINGS
-        # --------------------------------------------------------
+        # Global iron deficiency
         if ferritin is not None and ferritin < 30:
             evidence = [
                 f"Ferritin {fmt(ferritin, 0)} ng/mL",
@@ -1750,6 +1720,7 @@ else:
                 priority=5,
             )
 
+        # B12
         if b12 is not None and b12 < 200:
             add_dx(
                 dx,
@@ -1790,6 +1761,7 @@ else:
                 priority=28,
             )
 
+        # Folate
         if folate is not None and folate < 4:
             add_dx(
                 dx,
@@ -1808,6 +1780,7 @@ else:
                 priority=8,
             )
 
+        # Hemolysis
         hemolysis_pattern = (
             ldh == "High"
             and haptoglobin == "Low"
@@ -1836,6 +1809,7 @@ else:
                 priority=4,
             )
 
+        # Thyroid
         if tsh is not None and tsh > 5:
             add_dx(
                 dx,
@@ -1855,6 +1829,7 @@ else:
                 priority=24,
             )
 
+        # Smear
         if smear_abnormal == "Yes":
             add_dx(
                 dx,
@@ -1874,6 +1849,7 @@ else:
                 priority=3,
             )
 
+        # Medications/exposures
         if "NSAIDs / aspirin (chronic)" in exposures:
             add_dx(
                 dx,
@@ -1985,9 +1961,7 @@ else:
             )
         )
 
-        # --------------------------------------------------------
-        # MIXED ANEMIA RECOGNITION
-        # --------------------------------------------------------
+        # Mixed-anemia recognition
         mixed_findings = []
 
         if (
@@ -2018,8 +1992,7 @@ else:
         ):
             mixed_findings.append(
                 "Vitamin deficiency with microcytosis suggests a possible "
-                "mixed anemia in which iron deficiency or another "
-                "microcytic process masks macrocytosis."
+                "mixed anemia in which a microcytic process masks macrocytosis."
             )
 
         if "Recent transfusion (last 3 months)" in exposures:
@@ -2028,9 +2001,7 @@ else:
                 "reliability of morphology-based classification."
             )
 
-        # --------------------------------------------------------
-        # ONE-LINE CLINICAL IMPRESSION
-        # --------------------------------------------------------
+        # Clinical impression
         morphology = mcv_cat.split(" ")[0].lower()
         physiology = ""
 
@@ -2070,38 +2041,34 @@ else:
             )
 
         st.markdown(
-            f"""
-            <div class="summary-card">
-                <div class="summary-label">Clinical impression</div>
-                <div class="summary-value">
-                    {safe_text(clinical_impression)}
-                </div>
-            </div>
-            """,
+            (
+                '<div class="summary-card">'
+                '<div class="summary-label">Clinical impression</div>'
+                '<div class="summary-value">'
+                f"{safe_text(clinical_impression)}"
+                "</div>"
+                "</div>"
+            ),
             unsafe_allow_html=True,
         )
 
-        # --------------------------------------------------------
-        # IRON PATTERN DISPLAY
-        # --------------------------------------------------------
+        # Iron pattern
         if iron_pattern is not None:
             st.markdown(
-                f"""
-                <div class="iron-pattern">
-                    <div class="iron-pattern-title">
-                        {safe_text(iron_pattern["title"])}
-                    </div>
-                    <div>
-                        {safe_text(iron_pattern["description"])}
-                    </div>
-                </div>
-                """,
+                (
+                    '<div class="iron-pattern">'
+                    '<div class="iron-pattern-title">'
+                    f"{safe_text(iron_pattern['title'])}"
+                    "</div>"
+                    "<div>"
+                    f"{safe_text(iron_pattern['description'])}"
+                    "</div>"
+                    "</div>"
+                ),
                 unsafe_allow_html=True,
             )
 
-        # --------------------------------------------------------
-        # MIXED PATTERN DISPLAY
-        # --------------------------------------------------------
+        # Mixed pattern
         if mixed_findings:
             mixed_html = "".join(
                 f"<li>{safe_text(item)}</li>"
@@ -2109,20 +2076,18 @@ else:
             )
 
             st.markdown(
-                f"""
-                <div class="mixed-card">
-                    <strong>Mixed or potentially masked anemia pattern</strong>
-                    <ul style="margin-top:0.5rem; margin-bottom:0;">
-                        {mixed_html}
-                    </ul>
-                </div>
-                """,
+                (
+                    '<div class="mixed-card">'
+                    "<strong>Mixed or potentially masked anemia pattern</strong>"
+                    '<ul style="margin-top:0.5rem; margin-bottom:0;">'
+                    f"{mixed_html}"
+                    "</ul>"
+                    "</div>"
+                ),
                 unsafe_allow_html=True,
             )
 
-        # --------------------------------------------------------
-        # DATA COMPLETENESS
-        # --------------------------------------------------------
+        # Data completeness
         completed_groups = sum(
             [
                 known["iron_complete"],
@@ -2148,19 +2113,19 @@ else:
         st.markdown("#### Data completeness")
 
         st.markdown(
-            f"""
-            <span style="
-                display:inline-block;
-                padding:5px 11px;
-                border-radius:999px;
-                background:{completeness_color};
-                color:#ffffff;
-                font-size:0.82rem;
-                font-weight:800;
-            ">
-                {completeness}
-            </span>
-            """,
+            (
+                '<span style="'
+                "display:inline-block;"
+                "padding:5px 11px;"
+                "border-radius:999px;"
+                f"background:{completeness_color};"
+                "color:#ffffff;"
+                "font-size:0.82rem;"
+                "font-weight:800;"
+                '">'
+                f"{completeness}"
+                "</span>"
+            ),
             unsafe_allow_html=True,
         )
 
@@ -2169,9 +2134,7 @@ else:
             "groups have been entered."
         )
 
-        # --------------------------------------------------------
-        # RECOMMENDED NEXT STEPS
-        # --------------------------------------------------------
+        # Recommended next steps
         st.markdown("#### Recommended next steps")
 
         base_steps = next_most_informative(
@@ -2231,8 +2194,7 @@ else:
                     st.markdown(f"- {test}")
             else:
                 st.caption(
-                    "No additional high-priority tests identified from "
-                    "the entered data."
+                    "No additional high-priority tests identified."
                 )
 
         with next_col_2:
@@ -2246,80 +2208,62 @@ else:
                     "No additional high-priority clinical actions identified."
                 )
 
-        # --------------------------------------------------------
-       # --------------------------------------------------------
-# MOST LIKELY ETIOLOGIES
-# --------------------------------------------------------
-st.markdown("#### Most likely etiologies")
-
-if not dx:
-    st.info(
-        "Enter additional data to generate a ranked differential."
-    )
-
-else:
-    for index, item in enumerate(dx[:3], start=1):
-        if item["confidence"] == "Strongly supported":
-            confidence_class = "confidence-strong"
-
-        elif item["confidence"] == "Supported":
-            confidence_class = "confidence-supported"
-
-        else:
-            confidence_class = "confidence-possible"
-
-        evidence_html = "".join(
-            f'<span class="evidence-chip">{safe_text(evidence)}</span>'
-            for evidence in item["evidence"]
-        )
-
-        card_html = (
-            f'<div class="etiology-card">'
-            f'<div style="display:flex;'
-            f'justify-content:space-between;'
-            f'gap:1rem;'
-            f'align-items:flex-start;">'
-            f'<div class="etiology-title">'
-            f'{index}. {safe_text(item["title"])}'
-            f'</div>'
-            f'<span class="{confidence_class}">'
-            f'{safe_text(item["confidence"])}'
-            f'</span>'
-            f'</div>'
-            f'<div style="margin-top:0.55rem;">'
-            f'{evidence_html}'
-            f'</div>'
-            f'</div>'
-        )
-
-        st.markdown(
-            card_html,
-            unsafe_allow_html=True,
-        )
-
-        # --------------------------------------------------------
-        # DIFFERENTIAL DETAILS
-        # --------------------------------------------------------
-        st.markdown("---")
-        st.header("Differential details")
+        # ========================================================
+        # MOST LIKELY ETIOLOGIES + DETAILS IN ONE PLACE
+        # ========================================================
+        st.header("Most likely etiologies")
 
         if not dx:
             st.info(
-                "Add more data to generate differential details."
+                "Enter additional data to generate a ranked differential."
             )
 
         else:
-            for index, item in enumerate(dx[:10], start=1):
+            for index, item in enumerate(dx[:3], start=1):
+                if item["confidence"] == "Strongly supported":
+                    confidence_class = "confidence-strong"
+
+                elif item["confidence"] == "Supported":
+                    confidence_class = "confidence-supported"
+
+                else:
+                    confidence_class = "confidence-possible"
+
+                evidence_html = "".join(
+                    f'<span class="evidence-chip">{safe_text(evidence)}</span>'
+                    for evidence in item["evidence"]
+                )
+
+                card_html = (
+                    '<div class="etiology-card">'
+                    '<div style="display:flex;'
+                    'justify-content:space-between;'
+                    'gap:1rem;'
+                    'align-items:flex-start;">'
+                    '<div class="etiology-title">'
+                    f'{index}. {safe_text(item["title"])}'
+                    "</div>"
+                    f'<span class="{confidence_class}">'
+                    f'{safe_text(item["confidence"])}'
+                    "</span>"
+                    "</div>"
+                    '<div style="margin-top:0.55rem;">'
+                    f"{evidence_html}"
+                    "</div>"
+                    "</div>"
+                )
+
+                st.markdown(
+                    card_html,
+                    unsafe_allow_html=True,
+                )
+
                 with st.expander(
-                    f"{index}. {item['title']}",
+                    "Why this diagnosis and suggested workup",
                     expanded=show_all_details,
                 ):
                     st.markdown(
-                        f"**Confidence:** {item['confidence']}"
-                    )
-
-                    st.markdown(
-                        f"**Why:** {item['rationale']}"
+                        f"**Why it was selected:** {item['rationale']}"
                     )
 
                     filtered_workup = filter_suggestions(
@@ -2333,9 +2277,13 @@ else:
                         for workup_item in filtered_workup:
                             st.markdown(f"- {workup_item}")
 
-        # --------------------------------------------------------
-        # HEMATOLOGY REFERRAL
-        # --------------------------------------------------------
+                    else:
+                        st.caption(
+                            "No additional workup is suggested based on "
+                            "the information already entered."
+                        )
+
+        # Hematology referral
         st.markdown("---")
 
         with st.expander(
