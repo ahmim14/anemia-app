@@ -545,26 +545,89 @@ def filter_suggestions(lines: list[str], known: dict[str, bool]) -> list[str]:
 
 
 # ============================================================
-# HEADER + ROBUST RESET
 # ============================================================
+# HEADER + RELIABLE RESET
+# ============================================================
+def reset_app() -> None:
+    defaults = {
+        # Display controls
+        "teaching_mode": False,
+        "show_all_details": False,
+
+        # Symptoms and severity
+        "symptomatic_any": "Select...",
+        "high_risk_symptoms": "Select...",
+        "active_bleeding": "Select...",
+        "cvd": "Select...",
+
+        # CBC
+        "hb": "",
+        "hct": "",
+        "sex": "Select...",
+        "mcv_cat": "Select...",
+        "rdw": "Select...",
+        "other_cytopenias": "Select...",
+        "rapid_onset": "Select...",
+        "smear_abnormal": "Select...",
+
+        # Reticulocytes
+        "retic_mode": "Qualitative",
+        "retic_qual": "Select...",
+        "retic_pct": "",
+        "expected_hct": "",
+
+        # Iron studies
+        "ferritin": "",
+        "tsat": "",
+
+        # Vitamins
+        "b12": "",
+        "folate": "",
+
+        # Hemolysis markers
+        "ldh": "Select...",
+        "haptoglobin": "Select...",
+        "indirect_bili": "Select...",
+
+        # Other contributors
+        "tsh": "",
+        "egfr": "",
+
+        # Exposures
+        "exposures": [],
+    }
+
+    for key, default_value in defaults.items():
+        st.session_state[key] = default_value
+
+
 st.markdown(
     """
     <div class="app-header">
         <div class="app-title">AnemiaDx</div>
-        <div class="app-subtitle">A stepwise approach to anemia evaluation, differential diagnosis, and resident education.</div>
+        <div class="app-subtitle">
+            A stepwise approach to anemia evaluation, differential diagnosis,
+            and resident education.
+        </div>
         <div class="build-label">Clinical reasoning assistant</div>
     </div>
     """,
     unsafe_allow_html=True,
 )
-st.caption("Educational decision support only — not a substitute for clinical judgment.")
+
+st.caption(
+    "Educational decision support only — not a substitute for clinical judgment."
+)
 
 reset_col, _ = st.columns([1.5, 4])
-with reset_col:
-    if st.button("↻ Start new evaluation", use_container_width=True, key="reset_button"):
-        st.session_state.clear()
-        st.rerun()
 
+with reset_col:
+    st.button(
+        "↻ Start new evaluation",
+        on_click=reset_app,
+        use_container_width=True,
+        key="reset_button",
+    )
 
 # ============================================================
 # INPUTS
